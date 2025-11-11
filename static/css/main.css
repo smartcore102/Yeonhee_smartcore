@@ -38,7 +38,6 @@ body {
   min-height: 450px;
 }
 .main-view-container {
-  height: calc(100vh - 12rem);
   min-height: 500px;
 }
 /* 축소 뷰 스타일 */
