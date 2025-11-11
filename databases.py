@@ -3,9 +3,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 
-#DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smartcore:smartcore1234@patrol-robot-db.cn8ya0qyiv7q.ap-northeast-2.rds.amazonaws.com:5432/postgres")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smartcore:smartcore1234@patrol-robot-db.cn8ya0qyiv7q.ap-northeast-2.rds.amazonaws.com:5432/postgres")
 
-DATABASE_URL = "postgresql://smartcore:smartcore1234@localhost:5433/postgres"
+# DATABASE_URL = "postgresql://smartcore:smartcore1234@localhost:5433/postgres"
+
+# DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
