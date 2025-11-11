@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import crud, databases
+import schemas, crud, databases
 
-router = APIRouter(tags=["users"])
+router = APIRouter(tags=["auth"])
 
-@router.get("/users")
-def get_users(db: Session = Depends(databases.get_db)):
-    return crud.get_users(db)
+@router.post("/login")
+def login(data: schemas.LoginSchema, db: Session = Depends(databases.get_db)):
+    user = crud.authenticate_user(db, data.username, data.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    return {"access_token": "fake-jwt-token", "user_id": user.id}
 
-@router.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(databases.get_db)):
-    result = crud.delete_user(db, user_id)
-    return {"deleted": result}
+@router.post("/register", response_model=schemas.UserOut)
+def register(user: schemas.UserCreate, db: Session = Depends(databases.get_db)):
+    user.hashed_password = crud.hash_password(user.hashed_password)
+    return crud.create_user(db, user)
