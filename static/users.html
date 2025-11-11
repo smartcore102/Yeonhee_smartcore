@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <!-- 인라인 스타일을 사용하여 CSS 경로 문제를 해결합니다. -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            margin-top: 30px;
+            color: #444;
+        }
+        /* 기존의 Jinja 템플릿 로직이 아닌, JavaScript가 메시지를 삽입할 영역 */
+        #message-display {
+            min-height: 50px; /* 메시지 영역 확보 */
+        }
+        .message {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .user-table th, .user-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .user-table th {
+            background-color: #f1f1f1;
+            color: #333;
+        }
+        .user-table tr:hover {
+            background-color: #f9f9f9;
+        }
+        /* 🚨 테이블 컬럼 가로 비율 조정 */
+        .user-table th:nth-child(1), .user-table td:nth-child(1) { width: 5%; } 
+        .user-table th:nth-child(2), .user-table td:nth-child(2) { width: 15%; } 
+        .user-table th:nth-child(3), .user-table td:nth-child(3) { width: 20%; } 
+        .user-table th:nth-child(4), .user-table td:nth-child(4) { width: 15%; } 
+        .user-table th:nth-child(5), .user-table td:nth-child(5) { width: 10%; } 
+        .user-table th:nth-child(6), .user-table td:nth-child(6) { width: 15%; } 
+        .user-table th:nth-child(7), .user-table td:nth-child(7) { width: 20%; } 
+
+        .btn-delete {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .btn-delete:hover {
+            background-color: #c82333;
+        }
+        .add-user-form {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+            border: 1px solid #eee;
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 10px; 
+        }
+        /* 폼 요소는 100% 폭을 사용하도록 재정의 */
+        .add-user-form input, .add-user-form select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .add-user-form button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            grid-column: span 3; 
+            width: 100%;
+        }
+        .add-user-form button:hover {
+            background-color: #0056b3;
+        }
+        /* 메인으로 돌아가기 버튼 스타일 */
+        .btn-main {
+            display: inline-block;
+            background-color: #6c757d; 
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        .btn-main:hover {
+            background-color: #5a6268;
+        }
+        .no-data {
+            text-align: center;
+            color: #888;
+            padding: 20px;
+            border: 1px dashed #ddd;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }}</h1>
+
+        <!-- 메인 페이지로 돌아가는 버튼 -->
+        <a href="/main" class="btn-main">메인 페이지로 돌아가기</a>
+
+        <!-- 에러 및 성공 메시지 표시 (Jinja 템플릿에서 받은 값 사용) -->
+        <div id="message-display">
+            {% if error_message %}
+                <div class="message error">{{ error_message }}</div>
+            {% endif %}
+            {% if success_message %}
+                <div class="message success">{{ success_message }}</div>
+            {% endif %}
+        </div>
+        <!-- 메시지 표시 끝 -->
+
+        <h2>새 사용자 등록</h2>
+        <form class="add-user-form" action="/register" method="post">
+            <input type="text" name="employee_number" placeholder="사원 번호 (예: E002)" required>
+            <input type="text" name="username" placeholder="아이디 (로그인 ID)" required>
+            <input type="text" name="name" placeholder="이름 (사용자 표시 이름)" required>
+            <input type="password" name="password" placeholder="비밀번호" required>
+            <select name="role" required>
+                <option value="" disabled selected>권한 선택</option>
+                <option value="user">일반 사용자</option>
+                <option value="admin">관리자</option>
+            </select>
+            <button type="submit">사용자 등록</button>
+        </form>
+
+        <h2>등록된 사용자 목록 (활성화 상태)</h2>
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>사원 번호</th>
+                    <th>아이디</th>
+                    <th>이름</th>
+                    <th>권한</th>
+                    <th>등록일</th>
+                    <th>관리</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr id="user-row-{{ user.id }}">
+                    <td>{{ loop.index }}</td> 
+                    <td>{{ user.employee_number }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.name }}</td>
+                    <td>
+                        <!-- 권한을 '관리자'/'사용자'로 표시하는 로직 적용 -->
+                        {% if user.role == 'admin' %}
+                            관리자
+                        {% elif user.role == 'user' %}
+                            사용자
+                        {% else %}
+                            {{ user.role }}
+                        {% endif %}
+                    </td>
+                    <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        <!-- 수정된 계정 삭제(Soft Delete) 폼: POST 메서드로 soft_delete 경로 호출 -->
+                        <form action="/users/{{ user.id }}/soft_delete" method="post" 
+                              onsubmit="return confirm('{{ user.name }} 계정을 정말로 비활성화(삭제)하시겠습니까?');" 
+                              style="display:inline;">
+                            <button type="submit" class="btn-delete">계정 삭제</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if not users %}
+            <p class="no-data">등록된 활성 사용자가 없습니다.</p>
+        {% endif %}
+    </div>
+
+</body>
+</html>
