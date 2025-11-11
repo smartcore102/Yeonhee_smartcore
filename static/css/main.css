@@ -1,0 +1,93 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap");
+body {
+  font-family: "Inter", sans-serif;
+  background-color: #f1f5f9; /* Slate-100 */
+}
+.dashboard-card {
+  background-color: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -2px rgba(0, 0, 0, 0.06);
+  padding: 1.5rem;
+  transition: all 0.3s ease-in-out;
+}
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #1e3a8a; /* Blue-900 */
+}
+/* 로봇 상태 뱃지 스타일 */
+.status-badge {
+  font-size: 1.8rem;
+  font-weight: 800;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  min-width: 150px;
+  justify-content: center;
+}
+#map-main,
+#video-main {
+  width: 100%;
+  transition: all 0.5s ease-in-out;
+  border-radius: 1rem;
+  overflow: hidden;
+  height: calc(100vh - 20rem);
+  min-height: 450px;
+}
+.main-view-container {
+  height: calc(100vh - 12rem);
+  min-height: 500px;
+}
+/* 축소 뷰 스타일 */
+.small-view {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 150px;
+  height: 100px;
+  cursor: pointer;
+  z-index: 10;
+  border: 3px solid #60a5fa;
+  border-radius: 0.75rem;
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+  padding: 0.25rem;
+  background-color: #ffffff;
+  overflow: hidden;
+  opacity: 0.9;
+  transition: all 0.3s;
+}
+.small-view:hover {
+  opacity: 1;
+  transform: scale(1.05);
+}
+.btn-action {
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  transition: background-color 0.2s;
+}
+/* 온도/습도 값을 한 줄에 표시하기 위한 스타일 */
+.temp-humi-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 0.5rem;
+}
+/* 환경 센서 값 폰트 크기 조정 */
+.temp-humi-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+.env-metric-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+/* 지도 오버레이 스타일 (순찰 구역 그리기 모드 시) */
+.drawing-active {
+  cursor: crosshair;
+  border: 3px dashed #ef4444; /* red-500 */
+}
