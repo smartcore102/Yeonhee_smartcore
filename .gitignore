@@ -1,1 +1,15 @@
 venv
+
+# python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# FastAPI/Uvicorn Logs and Data
+*.sqlite3 
+*.log
+
+# System/IDE files
+.DS_Store
+.vscode/
