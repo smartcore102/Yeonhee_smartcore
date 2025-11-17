@@ -5,8 +5,8 @@ console.log("main.js loaded successfully");
 // ===========================
 const WS_HOST = "52.78.32.242"; // EC2 IP
 //const WS_HOST = "192.168.0.57"; // local IP
-const WS_PORT = 8000;
-const WS_URL = `ws://${WS_HOST}:${WS_PORT}/ws/control`;
+//const WS_PORT = 8000;
+const WS_URL = `ws://${WS_HOST}/ws/control`;
 
 const CAM_HOST = "192.168.0.100"; // Raspberry Pi (web_video_server)
 const MJPEG_STREAM_URL = `http://${CAM_HOST}:8080/stream?topic=/image_raw&type=ros_compressed&width=640&height=480&quality=50`;
