@@ -482,6 +482,13 @@ latest_batt = None
 prev_amcl_pos = None
 total_distance = 0.0
 start_time = None
+latest_env = {
+    "temp": None,
+    "hum": None,
+    "co2": None,
+    "tvoc": None,
+    "lpg": None
+}
 clients: List[WebSocket] = []
 
 
@@ -534,6 +541,20 @@ def cmdvel_callback(msg):
     if latest_state["text"] != new_state:
         latest_state["text"] = new_state
 
+def temp_callback(msg):
+    latest_env["temp"] = msg["data"]
+
+def hum_callback(msg):
+    latest_env["hum"] = msg["data"]
+
+def co2_callback(msg):
+    latest_env["co2"] = msg["data"]
+
+def tvoc_callback(msg):
+    latest_env["tvoc"] = msg["data"]
+
+def lpg_callback(msg):
+    latest_env["lpg"] = msg["data"]
 
 # ROS 토픽 정의
 amcl_topic = roslibpy.Topic(ros, "/amcl_pose", "geometry_msgs/PoseWithCovarianceStamped")
@@ -542,13 +563,22 @@ batt_topic = roslibpy.Topic(ros, "/battery_state", "sensor_msgs/msg/BatteryState
 cmdvel_pub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/Twist")
 cmdvel_sub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/Twist")
 patrol_pub = roslibpy.Topic(ros, "/patrol/cmd", "std_msgs/String")
-
+temp_topic = roslibpy.Topic(ros, "/temp_data", "std_msgs/Float32")
+hum_topic  = roslibpy.Topic(ros, "/hum_data", "std_msgs/Float32")
+co2_topic  = roslibpy.Topic(ros, "/eco2_data", "std_msgs/Float32")
+tvoc_topic = roslibpy.Topic(ros, "/tvoc_data", "std_msgs/Float32")
+lpg_topic  = roslibpy.Topic(ros, "/lpg_data", "std_msgs/Float32")
 
 def setup_ros_topics():
     amcl_topic.subscribe(amcl_callback)
     map_topic.subscribe(map_callback)
     batt_topic.subscribe(batt_callback)
     cmdvel_sub.subscribe(cmdvel_callback)
+    temp_topic.subscribe(temp_callback)
+    hum_topic.subscribe(hum_callback)
+    co2_topic.subscribe(co2_callback)
+    tvoc_topic.subscribe(tvoc_callback)
+    lpg_topic.subscribe(lpg_callback)
     print("[ROS] 토픽 구독 활성화")
 
 
@@ -613,6 +643,7 @@ async def websocket_control(websocket: WebSocket):
             # 1) 클라이언트에서 들어오는 명령 처리
             try:
                 msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
+                
                 data = json.loads(msg)
                 t = data.get("type")
 
@@ -740,12 +771,21 @@ async def websocket_control(websocket: WebSocket):
                 }
             )
 
+            if any(latest_env.values()):
+                await websocket.send_json({
+                "type": "env",
+                "temp": latest_env["temp"],
+                "hum": latest_env["hum"],
+                "co2": latest_env["co2"],
+                "tvoc": latest_env["tvoc"],
+                "lpg": latest_env["lpg"],
+            })
+
     except WebSocketDisconnect:
         print("[WS] 클라이언트 연결 종료")
     finally:
         if websocket in clients:
             clients.remove(websocket)
-
 
 @app.on_event("shutdown")
 def shutdown_event():

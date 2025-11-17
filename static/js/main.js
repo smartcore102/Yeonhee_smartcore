@@ -134,6 +134,18 @@ function handleMessage(m) {
     case "state":
       updateRobotStatus(m.text);
       break;
+    case "env":
+      if (m.temp !== null)
+        document.getElementById("metric-temp").textContent = `${m.temp.toFixed(1)} °C`;
+      if (m.hum !== null)
+        document.getElementById("metric-humi").textContent = `${m.hum.toFixed(1)} %`;
+      if (m.co2 !== null)
+        document.getElementById("metric-co2").textContent = `${m.co2.toFixed(0)} ppm`;
+      if (m.tvoc !== null)
+        document.getElementById("metric-tvoc").textContent = `${m.tvoc.toFixed(0)} ppb`;
+      if (m.lpg !== null)
+        document.getElementById("metric-lpg").textContent = `${m.lpg.toFixed(2)} ppm`;
+      break;
   }
 }
 
@@ -142,132 +154,125 @@ function handleMessage(m) {
 // ===========================
 // === 지도 렌더링 + 로봇 표시 (회전 + 비율 유지) ===
 function drawMap(m) {
-  const w = m.width, h = m.height, gray = m.gray;
-  if (!Array.isArray(gray) || gray.length !== w * h) return;
+    const w = m.width,
+        h = m.height,
+        gray = m.gray;
+    if (!Array.isArray(gray) || gray.length !== w * h) return;
 
-  // 오프스크린 버퍼
-  if (!mapBuffer) {
-    mapBuffer = document.createElement('canvas');
-    mapBufferCtx = mapBuffer.getContext('2d');
-  }
-  if (mapBuffer.width !== w || mapBuffer.height !== h) {
-    mapBuffer.width = w;
-    mapBuffer.height = h;
-  }
+    // 오프스크린 버퍼 준비
+    if (!mapBuffer) {
+        mapBuffer = document.createElement("canvas");
+        mapBufferCtx = mapBuffer.getContext("2d");
+    }
+    if (mapBuffer.width !== w || mapBuffer.height !== h) {
+        mapBuffer.width = w;
+        mapBuffer.height = h;
+    }
 
-  // occupancy → grayscale
-  const imgData = new ImageData(w, h);
-  for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
-    const g = gray[i] | 0;
-    imgData.data[j] = g;
-    imgData.data[j + 1] = g;
-    imgData.data[j + 2] = g;
-    imgData.data[j + 3] = 255;
-  }
-  mapBufferCtx.putImageData(imgData, 0, 0);
+    // occupancy → grayscale 이미지로 변환
+    const imgData = new ImageData(w, h);
+    for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
+        const g = gray[i] | 0;
+        imgData.data[j] = g;
+        imgData.data[j + 1] = g;
+        imgData.data[j + 2] = g;
+        imgData.data[j + 3] = 255;
+    }
+    mapBufferCtx.putImageData(imgData, 0, 0);
 
-  mapMeta = {
-    w,
-    h,
-    res: m.res ?? mapMeta.res,
-    ox: m.origin?.x ?? 0,
-    oy: m.origin?.y ?? 0
-  };
+    // 메타데이터 갱신
+    mapMeta = {
+        w,
+        h,
+        res: m.res ?? mapMeta.res,
+        ox: m.origin?.x ?? 0,
+        oy: m.origin?.y ?? 0,
+    };
 
-  drawRobot();
+    // 지도 + 로봇 다시 그리기
+    drawRobot();
 }
 
+// world → pixel (서버에서 이미 flipud 했으므로 y축 재반전만)
 function worldToPixel(x, y) {
-  // world → pixel 좌표 (y 반전만 적용)
-  const px = (x - mapMeta.ox) / mapMeta.res;
-  const py = mapMeta.h - (y - mapMeta.oy) / mapMeta.res;
-  return { x: px, y: py };
+    // world → pixel 좌표 (y 반전)
+    const px = (x - mapMeta.ox) / mapMeta.res;
+    const py = mapMeta.h - (y - mapMeta.oy) / mapMeta.res;
+    return { x: px, y: py };
 }
 
 function drawRobot() {
-  if (!mapBuffer) return;
+    if (!mapBuffer || !mapMeta.w || !mapMeta.h) return;
 
-  const viewW = mapCanvas.clientWidth;
-  const viewH = mapCanvas.clientHeight;
+    const viewW = mapCanvas.clientWidth || mapCanvas.width || 1;
+    const viewH = mapCanvas.clientHeight || mapCanvas.height || 1;
 
-  // 캔버스 크기 동기화
-  if (mapCanvas.width !== viewW || mapCanvas.height !== viewH) {
-    mapCanvas.width = viewW;
-    mapCanvas.height = viewH;
-  }
-
-  // 비율 유지 스케일 + 중앙 offset 계산
-  const scale = Math.min(viewW / mapMeta.w, viewH / mapMeta.h);
-  const offX = Math.floor((viewW - mapMeta.w * scale) / 2);
-  const offY = Math.floor((viewH - mapMeta.h * scale) / 2);
-
-  // 초기화 및 변환 적용
-  mapCtx.setTransform(1, 0, 0, 1, 0, 0);
-  mapCtx.clearRect(0, 0, viewW, viewH);
-
-  // 중심 기준 90도 회전
-  mapCtx.setTransform(scale, 0, 0, scale, offX, offY);
-  mapCtx.save();
-  mapCtx.translate(mapMeta.w / 2, mapMeta.h / 2);
-  mapCtx.rotate(-Math.PI / 2);
-  mapCtx.translate(-mapMeta.w / 2, -mapMeta.h / 2);
-
-  // 지도
-  mapCtx.drawImage(mapBuffer, 0, 0);
-
-  // 로봇
-  if (robotPose.x != null) {
-    const p = worldToPixel(robotPose.x, robotPose.y);
-    const size = 5;
-    mapCtx.save();
-    mapCtx.translate(p.x, p.y);
-    mapCtx.rotate(robotPose.yaw);
-    mapCtx.fillStyle = '#ef4444';
-    mapCtx.beginPath();
-    mapCtx.arc(0, 0, size, 0, 2 * Math.PI);
-    mapCtx.fill();
-
-    // 방향 표시 화살표
-    mapCtx.beginPath();
-    mapCtx.moveTo(0, 0);
-    mapCtx.lineTo(size * 2, 0);
-    mapCtx.strokeStyle = 'white';
-    mapCtx.lineWidth = 2;
-    mapCtx.stroke();
-    mapCtx.restore();
-  }
-
-  // 순찰 구역 표시 (비율/회전 맞게)
-  if (patrolAreaPoints.length > 0) {
-    mapCtx.beginPath();
-    mapCtx.strokeStyle = '#ef4444';
-    mapCtx.lineWidth = 4;
-    mapCtx.fillStyle = 'rgba(239,68,68,0.2)';
-    mapCtx.moveTo(patrolAreaPoints[0].x, patrolAreaPoints[0].y);
-    for (let i = 1; i < patrolAreaPoints.length; i++) {
-      mapCtx.lineTo(patrolAreaPoints[i].x, patrolAreaPoints[i].y);
+    // 캔버스 크기 동기화
+    if (mapCanvas.width !== viewW || mapCanvas.height !== viewH) {
+        mapCanvas.width = viewW;
+        mapCanvas.height = viewH;
     }
-    mapCtx.closePath();
-    mapCtx.stroke();
-    mapCtx.fill();
 
-    patrolAreaPoints.forEach((p) => {
-      mapCtx.beginPath();
-      mapCtx.fillStyle = '#10b981';
-      mapCtx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
-      mapCtx.fill();
-    });
-  }
+    // === 1) 비율 유지 스케일 + 중앙 정렬 offset 계산 ===
+    const scale = Math.min(viewW / mapMeta.w, viewH / mapMeta.h);
+    const offX = (viewW - mapMeta.w * scale) / 2;
+    const offY = (viewH - mapMeta.h * scale) / 2;
 
-  mapCtx.restore();
-}
+    // === 2) 초기화 후 변환 설정 (※ 회전/translate 절대 안 건드림) ===
+    mapCtx.setTransform(1, 0, 0, 1, 0, 0);
+    mapCtx.clearRect(0, 0, viewW, viewH);
 
-function updatePose(m) {
-  robotPose = { x: m.x, y: m.y, yaw: m.yaw };
-  const xf = m.x?.toFixed(2) ?? "0.00";
-  const yf = m.y?.toFixed(2) ?? "0.00";
-  robotLocation.textContent = `X=${xf} m, Y=${yf} m`;
-  renderScene();
+    // 지도 그리기
+    mapCtx.setTransform(scale, 0, 0, scale, offX, offY);
+    mapCtx.drawImage(mapBuffer, 0, 0);
+
+    // === 3) 로봇 그리기 ===
+    if (robotPose.x != null && robotPose.y != null) {
+        const p = worldToPixel(robotPose.x, robotPose.y);
+        const size = 5;
+
+        mapCtx.save();
+        mapCtx.translate(p.x, p.y);
+        mapCtx.rotate(robotPose.yaw);      // 로봇 방향은 여기서만 회전
+
+        // 로봇 위치 점
+        mapCtx.fillStyle = "#ef4444";
+        mapCtx.beginPath();
+        mapCtx.arc(0, 0, size, 0, 2 * Math.PI);
+        mapCtx.fill();
+
+        // 방향 화살표
+        mapCtx.beginPath();
+        mapCtx.moveTo(0, 0);
+        mapCtx.lineTo(size * 2, 0);
+        mapCtx.strokeStyle = "white";
+        mapCtx.lineWidth = 2;
+        mapCtx.stroke();
+
+        mapCtx.restore();
+    }
+
+    // === 4) 순찰 구역 폴리곤 (지도 좌표계 그대로 사용) ===
+    if (patrolAreaPoints.length > 0) {
+        mapCtx.beginPath();
+        mapCtx.strokeStyle = "#ef4444";
+        mapCtx.lineWidth = 4;
+        mapCtx.fillStyle = "rgba(239,68,68,0.2)";
+        mapCtx.moveTo(patrolAreaPoints[0].x, patrolAreaPoints[0].y);
+        for (let i = 1; i < patrolAreaPoints.length; i++) {
+            mapCtx.lineTo(patrolAreaPoints[i].x, patrolAreaPoints[i].y);
+        }
+        mapCtx.closePath();
+        mapCtx.stroke();
+        mapCtx.fill();
+
+        patrolAreaPoints.forEach((p) => {
+            mapCtx.beginPath();
+            mapCtx.fillStyle = "#10b981";
+            mapCtx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+            mapCtx.fill();
+        });
+    }
 }
 
 // ===========================
