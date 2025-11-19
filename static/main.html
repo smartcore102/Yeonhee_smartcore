@@ -1,374 +1,463 @@
 <!DOCTYPE html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>자율주행 순찰 로봇 관제 대시보드</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/roslib@1.0.1/build/roslib.min.js"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
-    />
-    <link rel="stylesheet" href="static/css/main.css" />
-  </head>
-  <body class="min-h-screen p-4 md:p-8">
-    <div class="max-w-8xl mx-auto">
-      <header
-        class="flex justify-between items-center mb-8 pb-4 border-b-2 border-blue-200"
-      >
-        <h1 class="text-4xl font-extrabold text-gray-800 flex items-center">
-          <i class="fas fa-robot text-blue-500 mr-3"></i> 순찰 로봇 관제
-          대시보드
-        </h1>
-        <div class="flex items-center space-x-4">
-          <div class="text-lg font-bold text-gray-700">
-            <span>{{ username }}</span>님 환영합니다.
-          </div>
-          <div
-            id="ros-status"
-            class="flex items-center space-x-2 text-lg font-semibold"
-          >
-            <span
-              id="status-indicator"
-              class="w-4 h-4 rounded-full bg-red-500"
-            ></span>
-            <span id="status-text" class="text-red-700">ROS 연결 중...</span>
-          </div>
-          {% if is_admin %}
-          <a
-            href="/users"
-            class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg transition duration-150"
-          >
-            사용자 관리
-          </a>
-          {% endif %}
-          <a
-            href="/logout"
-            class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150"
-          >
-            로그아웃
-          </a>
-        </div>
-      </header>
-
-      <div class="grid grid-cols-12 gap-8 relative">
-        <div id="main-content-area" class="col-span-12 xl:col-span-8 space-y-4">
-          <div class="main-view-container relative">
-            <div
-              id="map-main"
-              class="main-view dashboard-card p-4 aspect-video relative"
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>자율주행 순찰 로봇 관제 대시보드</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/roslib@1.0.1/build/roslib.min.js"></script>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+        />
+        <link rel="stylesheet" href="static/css/main.css" />
+    </head>
+    <body class="min-h-screen p-4 md:p-8">
+        <div class="max-w-8xl mx-auto">
+            <header
+                class="flex justify-between items-center mb-8 pb-4 border-b-2 border-blue-200"
             >
-              <h2
-                class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
-              >
-                <i class="fas fa-map-marked-alt text-blue-500 mr-2"></i> SLAM
-                순찰 지도 및 실시간 위치
-              </h2>
-              <div
-                class="w-full h-full bg-gray-100 flex items-center justify-center rounded-lg overflow-hidden relative"
-              >
-                <canvas
-                  id="map-canvas"
-                  class="w-full h-full object-cover rounded-lg bg-white"
-                ></canvas>
-              </div>
-            </div>
-
-            <div
-              id="video-main"
-              class="main-view dashboard-card p-4 aspect-video absolute inset-0 hidden"
-            >
-              <h2
-                class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
-              >
-                <i class="fas fa-video text-green-500 mr-2"></i> 실시간 상황
-                보기 (웹캠)
-              </h2>
-              <div
-                class="w-full h-full bg-gray-800 flex items-center justify-center rounded-lg relative"
-              >
-                <img
-                  id="webcam-feed"
-                  alt="실시간 웹캠 피드"
-                  class="w-full h-full object-contain rounded-lg"
-                />
-                <p id="video-placeholder" class="text-white text-lg absolute">
-                  웹캠 스트리밍 시작 대기 중...
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="map-small"
-              class="small-view bg-white hidden"
-              onclick="toggleMainView('map')"
-            >
-              <canvas
-                id="map-small-canvas"
-                class="w-full h-full object-cover rounded-md bg-gray-100"
-              ></canvas>
-              <span
-                class="absolute top-0 left-0 p-1 text-xs font-bold text-gray-700 bg-white bg-opacity-70 rounded-br-lg"
-                >🗺️ 지도</span
-              >
-            </div>
-
-            <div
-              id="video-small"
-              class="small-view bg-white"
-              onclick="toggleMainView('video')"
-            >
-              <img
-                id="webcam-small-feed"
-                alt="작은 웹캠 피드"
-                class="w-full h-full object-contain rounded-md bg-gray-800"
-              />
-              <span
-                class="absolute top-0 left-0 p-1 text-xs font-bold text-gray-700 bg-white bg-opacity-70 rounded-br-lg"
-                >📹 웹캠</span
-              >
-            </div>
-          </div>
-
-          <div id="patrol-control-map" class="dashboard-card p-4">
-            <h2
-              class="text-xl font-semibold text-gray-700 mb-4 flex items-center"
-            >
-              <i class="fas fa-play-circle text-blue-500 mr-2"></i> 순찰 명령
-            </h2>
-            <div class="grid grid-cols-4 gap-4">
-              <button
-                onclick="publishMission('repeat')"
-                class="btn-action bg-yellow-500 hover:bg-yellow-600 text-white col-span-1"
-              >
-                <i class="fas fa-redo-alt mr-1"></i> 반복순찰
-              </button>
-              <button
-                onclick="publishMission('single')"
-                class="btn-action bg-green-600 hover:bg-green-700 text-white col-span-1"
-              >
-                <i class="fas fa-location-arrow mr-1"></i> 1회 순찰
-              </button>
-              <button
-                onclick="publishMission('return')"
-                class="btn-action bg-indigo-600 hover:bg-indigo-700 text-white col-span-1"
-              >
-                <i class="fas fa-home mr-1"></i> 복귀
-              </button>
-              <button
-                onclick="publishCommand('stop')"
-                class="btn-action bg-red-600 hover:bg-red-700 text-white col-span-1"
-              >
-                <i class="fas fa-stop mr-1"></i> 정지
-              </button>
-            </div>
-          </div>
-
-          <div id="robot-location-card" class="dashboard-card p-4">
-            <h2
-              class="text-xl font-semibold text-gray-700 mb-2 flex items-center"
-            >
-              <i class="fas fa-crosshairs text-blue-500 mr-2"></i> 현재 로봇
-              좌표
-            </h2>
-            <div id="robot-location" class="text-gray-600 font-bold text-lg">
-              N/A
-            </div>
-          </div>
-        </div>
-
-        <div class="col-span-12 xl:col-span-4 space-y-6">
-          <div class="dashboard-card p-6 text-center">
-            <h2
-              class="text-2xl font-semibold text-gray-700 mb-4 flex items-center justify-center"
-            >
-              <i class="fas fa-info-circle text-blue-500 mr-2"></i> 로봇 현재
-              상태
-            </h2>
-            <span
-              id="metric-status"
-              class="status-badge bg-gray-200 text-gray-800"
-            >
-              <i class="fas fa-spinner fa-spin mr-3"></i> 연결 대기 중
-            </span>
-          </div>
-
-          <div id="manual-control" class="dashboard-card p-6 hidden">
-            <h2
-              class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
-            >
-              <i class="fas fa-gamepad text-orange-500 mr-2"></i> 수동 제어
-            </h2>
-            <div class="grid grid-cols-3 gap-3">
-              <div class="col-span-3 text-center">
-                <button
-                  onclick="publishCommand('forward')"
-                  class="btn-action bg-blue-600 hover:bg-blue-700 text-white w-full"
+                <h1
+                    class="text-4xl font-extrabold text-gray-800 flex items-center"
                 >
-                  <i class="fas fa-arrow-up"></i> 전진
-                </button>
-              </div>
-              <button
-                onclick="publishCommand('left')"
-                class="btn-action bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                <i class="fas fa-arrow-left"></i> 좌회전
-              </button>
-              <button
-                onclick="publishCommand('stop')"
-                class="btn-action bg-red-600 hover:bg-red-700 text-white"
-              >
-                정지
-              </button>
-              <button
-                onclick="publishCommand('right')"
-                class="btn-action bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                <i class="fas fa-arrow-right"></i> 우회전
-              </button>
-              <div class="col-span-3 text-center">
-                <button
-                  onclick="publishCommand('backward')"
-                  class="btn-action bg-blue-600 hover:bg-blue-700 text-white w-full"
+                    <i class="fas fa-robot text-blue-500 mr-3"></i> 순찰 로봇
+                    관제 대시보드
+                </h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-lg font-bold text-gray-700">
+                        <span>{{ username }}</span>님 환영합니다.
+                    </div>
+                    <div
+                        id="ros-status"
+                        class="flex items-center space-x-2 text-lg font-semibold"
+                    >
+                        <span
+                            id="status-indicator"
+                            class="w-4 h-4 rounded-full bg-red-500"
+                        ></span>
+                        <span id="status-text" class="text-red-700"
+                            >ROS 연결 중...</span
+                        >
+                    </div>
+                    {% if is_admin %}
+                    <a
+                        href="/users"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg transition duration-150"
+                    >
+                        사용자 관리
+                    </a>
+                    {% endif %}
+                    <a
+                        href="/logout"
+                        class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150"
+                    >
+                        로그아웃
+                    </a>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-12 gap-8 relative">
+                <div
+                    id="main-content-area"
+                    class="col-span-12 xl:col-span-8 space-y-4"
                 >
-                  <i class="fas fa-arrow-down"></i> 후진
-                </button>
-              </div>
-            </div>
-          </div>
+                    <div class="main-view-container relative">
+                        <div
+                            id="map-main"
+                            class="main-view dashboard-card p-4 aspect-video relative"
+                        >
+                            <h2
+                                class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-map-marked-alt text-blue-500 mr-2"
+                                ></i>
+                                SLAM 순찰 지도 및 실시간 위치
+                            </h2>
+                            <div
+                                class="w-full h-full bg-gray-100 flex items-center justify-center rounded-lg overflow-hidden relative"
+                            >
+                                <canvas
+                                    id="map-canvas"
+                                    class="w-full h-full object-cover rounded-lg bg-white"
+                                ></canvas>
+                            </div>
+                        </div>
 
-          <div class="dashboard-card p-6">
-            <h2
-              class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
-            >
-              <i class="fas fa-camera text-blue-600 mr-2"></i> 웹캠 제어
-            </h2>
-            <button
-              onclick="toggleVideoFeed()"
-              class="btn-action bg-blue-500 hover:bg-blue-600 text-white w-full"
-            >
-              <i class="fas fa-camera mr-2"></i> 웹캠 스트리밍 시작
-            </button>
-          </div>
+                        <div
+                            id="video-main"
+                            class="main-view dashboard-card p-4 aspect-video absolute inset-0 hidden"
+                        >
+                            <h2
+                                class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
+                            >
+                                <i class="fas fa-video text-green-500 mr-2"></i>
+                                실시간 상황 보기 (웹캠)
+                            </h2>
+                            <div
+                                class="w-full h-full bg-gray-800 flex items-center justify-center rounded-lg relative"
+                            >
+                                <img
+                                    id="webcam-feed"
+                                    alt="실시간 웹캠 피드"
+                                    class="w-full h-full object-contain rounded-lg"
+                                />
+                                <p
+                                    id="video-placeholder"
+                                    class="text-white text-lg absolute"
+                                >
+                                    웹캠 스트리밍 시작 대기 중...
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="dashboard-card p-4 pb-0">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-3 flex items-center">
-                <i class="fas fa-draw-polygon text-purple-600 mr-2"></i> 순찰 구역 설정
-            </h2>
+                        <div
+                            id="map-small"
+                            class="small-view bg-white hidden"
+                            onclick="toggleMainView('map')"
+                        >
+                            <canvas
+                                id="map-small-canvas"
+                                class="w-full h-full object-cover rounded-md bg-gray-100"
+                            ></canvas>
+                            <span
+                                class="absolute top-0 left-0 p-1 text-xs font-bold text-gray-700 bg-white bg-opacity-70 rounded-br-lg"
+                                >🗺️ 지도</span
+                            >
+                        </div>
 
-            <!-- space-y 제거 → flex로 gap만 유지 -->
-            <div class="flex flex-col gap-2 mb-0">
-                <button
-                onclick="startDrawingPatrolArea()"
-                id="draw-patrol-btn"
-                class="btn-action bg-purple-500 hover:bg-purple-600 text-white w-full"
-                >
-                <i class="fas fa-mouse-pointer mr-2"></i> 지도에 구역 그리기 시작
-                </button>
+                        <div
+                            id="video-small"
+                            class="small-view bg-white"
+                            onclick="toggleMainView('video')"
+                        >
+                            <img
+                                id="webcam-small-feed"
+                                alt="작은 웹캠 피드"
+                                class="w-full h-full object-contain rounded-md bg-gray-800"
+                            />
+                            <span
+                                class="absolute top-0 left-0 p-1 text-xs font-bold text-gray-700 bg-white bg-opacity-70 rounded-br-lg"
+                                >📹 웹캠</span
+                            >
+                        </div>
+                    </div>
 
-                <button
-                onclick="setPatrolArea()"
-                id="set-patrol-btn"
-                class="btn-action bg-green-500 hover:bg-green-600 text-white w-full hidden"
-                >
-                <i class="fas fa-check-circle mr-2"></i> 구역 설정 완료 및 명령 전송
-                </button>
+                    <div id="patrol-control-map" class="dashboard-card p-4">
+                        <h2
+                            class="text-xl font-semibold text-gray-700 mb-4 flex items-center"
+                        >
+                            <i
+                                class="fas fa-play-circle text-blue-500 mr-2"
+                            ></i>
+                            순찰 명령
+                        </h2>
+                        <div class="grid grid-cols-4 gap-4">
+                            <button
+                                onclick="publishMission('repeat')"
+                                class="btn-action bg-yellow-500 hover:bg-yellow-600 text-white col-span-1"
+                            >
+                                <i class="fas fa-redo-alt mr-1"></i> 반복순찰
+                            </button>
+                            <button
+                                onclick="publishMission('single')"
+                                class="btn-action bg-green-600 hover:bg-green-700 text-white col-span-1"
+                            >
+                                <i class="fas fa-location-arrow mr-1"></i> 1회
+                                순찰
+                            </button>
+                            <button
+                                onclick="publishMission('return')"
+                                class="btn-action bg-indigo-600 hover:bg-indigo-700 text-white col-span-1"
+                            >
+                                <i class="fas fa-home mr-1"></i> 복귀
+                            </button>
+                            <button
+                                onclick="publishMission('resume')"
+                                class="btn-action bg-gray-600 hover:bg-gray-700 text-white col-span-1"
+                            >
+                                <i class="fas fa-play mr-1"></i> 재개
+                            </button>
+                            <button
+                                onclick="publishMission('pause')"
+                                class="btn-action bg-red-600 hover:bg-red-700 text-white col-span-4"
+                            >
+                                <i class="fas fa-stop mr-1"></i> 일시정지
+                            </button>
+                        </div>
+                    </div>
 
-                <p id="drawing-status" class="text-sm text-gray-500 hidden mb-0">
-                지도 위를 클릭하여 순찰 웨이포인트를 찍으세요. (3개 이상)
-                </p>
-            </div>
-          </div>
-
-          <div class="dashboard-card p-6">
-            <h2
-              class="text-2xl font-semibold text-gray-700 mb-6 flex items-center"
-            >
-              <i class="fas fa-tachometer-alt text-teal-500 mr-2"></i> 로봇
-              실시간 메트릭
-            </h2>
-
-            <div class="grid grid-cols-2 gap-4">
-              <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <p class="text-sm text-blue-600 font-medium">
-                  <i class="fas fa-battery-full mr-1"></i> 배터리 잔량
-                </p>
-                <span id="metric-battery" class="metric-value text-blue-900"
-                  >--%</span
-                >
-              </div>
-              <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                <p class="text-sm text-indigo-600 font-medium">
-                  <i class="fas fa-route mr-1"></i> 순찰 거리
-                </p>
-                <span id="metric-distance" class="metric-value text-indigo-900"
-                  >-- m</span
-                >
-              </div>
-              <div
-                class="bg-purple-50 p-4 rounded-lg border border-purple-200 col-span-2"
-              >
-                <p class="text-sm text-purple-600 font-medium">
-                  <i class="fas fa-clock mr-1"></i> 순찰 시간
-                </p>
-                <span id="metric-time" class="metric-value text-purple-900"
-                  >-- min</span
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="dashboard-card p-6">
-            <h2
-              class="text-2xl font-semibold text-gray-700 mb-6 flex items-center"
-            >
-              <i class="fas fa-thermometer-half text-orange-500 mr-2"></i> 환경
-              센서 값
-            </h2>
-
-            <div class="grid grid-cols-3 gap-4">
-              <div class="bg-red-50 p-4 rounded-lg border border-red-200 col-span-1">
-                  <p class="text-sm text-red-600 font-medium">
-                    <i class="fas fa-temperature-high mr-1"></i> 온도
-                  </p>
-                  <span id="metric-temp" class="env-metric-value text-red-900 mt-2">-- °C</span>
-              </div>
-
-              <div class="bg-sky-50 p-4 rounded-lg border border-sky-200 col-span-1">
-                  <p class="text-sm text-sky-600 font-medium">
-                    <i class="fas fa-tint mr-1"></i> 습도
-                  </p>
-                  <span id="metric-humi" class="env-metric-value text-sky-900 mt-2">-- %</span>
-              </div>
-
-              <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200 col-span-1">
-                  <p class="text-sm text-yellow-600 font-medium">
-                    <i class="fas fa-smog mr-1"></i> 이산화탄소 (CO₂)
-                  </p>
-                  <span id="metric-co2" class="env-metric-value text-yellow-900 mt-2">-- ppm</span>
-              </div>
-
-              <div class="bg-green-50 p-4 rounded-lg border border-green-200 col-span-1">
-                  <p class="text-sm text-green-600 font-medium">
-                    <i class="fas fa-leaf mr-1"></i> TVOC
-                  </p>
-                  <span id="metric-tvoc" class="env-metric-value text-green-900 mt-2">-- ppb</span>
+                    <div id="robot-location-card" class="dashboard-card p-4">
+                        <h2
+                            class="text-xl font-semibold text-gray-700 mb-2 flex items-center"
+                        >
+                            <i class="fas fa-crosshairs text-blue-500 mr-2"></i>
+                            현재 로봇 좌표
+                        </h2>
+                        <div
+                            id="robot-location"
+                            class="text-gray-600 font-bold text-lg"
+                        >
+                            N/A
+                        </div>
+                    </div>
                 </div>
 
-              <div class="bg-blue-50 p-4 rounded-lg border border-blue-200 col-span-1">
-                  <p class="text-sm text-blue-600 font-medium">
-                    <i class="fas fa-fire-alt mr-1"></i> LPG 가스
-                  </p>
-                  <span id="metric-lpg" class="env-metric-value text-blue-900 mt-2">-- ppm</span>
+                <div class="col-span-12 xl:col-span-4 space-y-6">
+                    <div class="dashboard-card p-6 text-center">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-4 flex items-center justify-center"
+                        >
+                            <i
+                                class="fas fa-info-circle text-blue-500 mr-2"
+                            ></i>
+                            로봇 현재 상태
+                        </h2>
+                        <span
+                            id="metric-status"
+                            class="status-badge bg-gray-200 text-gray-800"
+                        >
+                            <i class="fas fa-spinner fa-spin mr-3"></i> 연결
+                            대기 중
+                        </span>
+                    </div>
+
+                    <div id="manual-control" class="dashboard-card p-6 hidden">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
+                        >
+                            <i class="fas fa-gamepad text-orange-500 mr-2"></i>
+                            수동 제어
+                        </h2>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="col-span-3 text-center">
+                                <button
+                                    onclick="publishCommand('forward')"
+                                    class="btn-action bg-blue-600 hover:bg-blue-700 text-white w-full"
+                                >
+                                    <i class="fas fa-arrow-up"></i> 전진
+                                </button>
+                            </div>
+                            <button
+                                onclick="publishCommand('left')"
+                                class="btn-action bg-blue-500 hover:bg-blue-600 text-white"
+                            >
+                                <i class="fas fa-arrow-left"></i> 좌회전
+                            </button>
+                            <button
+                                onclick="publishCommand('stop')"
+                                class="btn-action bg-red-600 hover:bg-red-700 text-white"
+                            >
+                                정지
+                            </button>
+                            <button
+                                onclick="publishCommand('right')"
+                                class="btn-action bg-blue-500 hover:bg-blue-600 text-white"
+                            >
+                                <i class="fas fa-arrow-right"></i> 우회전
+                            </button>
+                            <div class="col-span-3 text-center">
+                                <button
+                                    onclick="publishCommand('backward')"
+                                    class="btn-action bg-blue-600 hover:bg-blue-700 text-white w-full"
+                                >
+                                    <i class="fas fa-arrow-down"></i> 후진
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card p-6">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-4 flex items-center"
+                        >
+                            <i class="fas fa-camera text-blue-600 mr-2"></i>
+                            웹캠 제어
+                        </h2>
+                        <button
+                            onclick="toggleVideoFeed()"
+                            class="btn-action bg-blue-500 hover:bg-blue-600 text-white w-full"
+                        >
+                            <i class="fas fa-camera mr-2"></i> 웹캠 스트리밍
+                            시작
+                        </button>
+                    </div>
+
+                    <div class="dashboard-card p-4 pb-0">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-3 flex items-center"
+                        >
+                            <i
+                                class="fas fa-draw-polygon text-purple-600 mr-2"
+                            ></i>
+                            순찰 구역 설정
+                        </h2>
+
+                        <!-- space-y 제거 → flex로 gap만 유지 -->
+                        <div class="flex flex-col gap-2 mb-0">
+                            <button
+                                onclick="startDrawingPatrolArea()"
+                                id="draw-patrol-btn"
+                                class="btn-action bg-purple-500 hover:bg-purple-600 text-white w-full"
+                            >
+                                <i class="fas fa-mouse-pointer mr-2"></i> 지도에
+                                구역 그리기 시작
+                            </button>
+
+                            <button
+                                onclick="setPatrolArea()"
+                                id="set-patrol-btn"
+                                class="btn-action bg-green-500 hover:bg-green-600 text-white w-full hidden"
+                            >
+                                <i class="fas fa-check-circle mr-2"></i> 구역
+                                설정 완료 및 명령 전송
+                            </button>
+
+                            <p
+                                id="drawing-status"
+                                class="text-sm text-gray-500 hidden mb-0"
+                            >
+                                지도 위를 클릭하여 순찰 웨이포인트를 찍으세요.
+                                (3개 이상)
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card p-6">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-6 flex items-center"
+                        >
+                            <i
+                                class="fas fa-tachometer-alt text-teal-500 mr-2"
+                            ></i>
+                            로봇 실시간 메트릭
+                        </h2>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div
+                                class="bg-blue-50 p-4 rounded-lg border border-blue-200"
+                            >
+                                <p class="text-sm text-blue-600 font-medium">
+                                    <i class="fas fa-battery-full mr-1"></i>
+                                    배터리 잔량
+                                </p>
+                                <span
+                                    id="metric-battery"
+                                    class="metric-value text-blue-900"
+                                    >--%</span
+                                >
+                            </div>
+                            <div
+                                class="bg-indigo-50 p-4 rounded-lg border border-indigo-200"
+                            >
+                                <p class="text-sm text-indigo-600 font-medium">
+                                    <i class="fas fa-route mr-1"></i> 순찰 거리
+                                </p>
+                                <span
+                                    id="metric-distance"
+                                    class="metric-value text-indigo-900"
+                                    >-- m</span
+                                >
+                            </div>
+                            <div
+                                class="bg-purple-50 p-4 rounded-lg border border-purple-200 col-span-2"
+                            >
+                                <p class="text-sm text-purple-600 font-medium">
+                                    <i class="fas fa-clock mr-1"></i> 순찰 시간
+                                </p>
+                                <span
+                                    id="metric-time"
+                                    class="metric-value text-purple-900"
+                                    >-- min</span
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card p-6">
+                        <h2
+                            class="text-2xl font-semibold text-gray-700 mb-6 flex items-center"
+                        >
+                            <i
+                                class="fas fa-thermometer-half text-orange-500 mr-2"
+                            ></i>
+                            환경 센서 값
+                        </h2>
+
+                        <div class="grid grid-cols-3 gap-4">
+                            <div
+                                class="bg-red-50 p-4 rounded-lg border border-red-200 col-span-1"
+                            >
+                                <p class="text-sm text-red-600 font-medium">
+                                    <i class="fas fa-temperature-high mr-1"></i>
+                                    온도
+                                </p>
+                                <span
+                                    id="metric-temp"
+                                    class="env-metric-value text-red-900 mt-2"
+                                    >-- °C</span
+                                >
+                            </div>
+
+                            <div
+                                class="bg-sky-50 p-4 rounded-lg border border-sky-200 col-span-1"
+                            >
+                                <p class="text-sm text-sky-600 font-medium">
+                                    <i class="fas fa-tint mr-1"></i> 습도
+                                </p>
+                                <span
+                                    id="metric-humi"
+                                    class="env-metric-value text-sky-900 mt-2"
+                                    >-- %</span
+                                >
+                            </div>
+
+                            <div
+                                class="bg-yellow-50 p-4 rounded-lg border border-yellow-200 col-span-1"
+                            >
+                                <p class="text-sm text-yellow-600 font-medium">
+                                    <i class="fas fa-smog mr-1"></i> 이산화탄소
+                                    (CO₂)
+                                </p>
+                                <span
+                                    id="metric-co2"
+                                    class="env-metric-value text-yellow-900 mt-2"
+                                    >-- ppm</span
+                                >
+                            </div>
+
+                            <div
+                                class="bg-green-50 p-4 rounded-lg border border-green-200 col-span-1"
+                            >
+                                <p class="text-sm text-green-600 font-medium">
+                                    <i class="fas fa-leaf mr-1"></i> TVOC
+                                </p>
+                                <span
+                                    id="metric-tvoc"
+                                    class="env-metric-value text-green-900 mt-2"
+                                    >-- ppb</span
+                                >
+                            </div>
+
+                            <div
+                                class="bg-blue-50 p-4 rounded-lg border border-blue-200 col-span-1"
+                            >
+                                <p class="text-sm text-blue-600 font-medium">
+                                    <i class="fas fa-fire-alt mr-1"></i> LPG
+                                    가스
+                                </p>
+                                <span
+                                    id="metric-lpg"
+                                    class="env-metric-value text-blue-900 mt-2"
+                                    >-- ppm</span
+                                >
+                            </div>
+                        </div>
+                    </div>
                 </div>
-
             </div>
-          </div>
         </div>
-      </div>
-    </div>
 
-    <script src="static/js/main.js"></script>
-  </body>
+        <script src="static/js/main.js"></script>
+    </body>
 </html>
