@@ -6,7 +6,7 @@ console.log("main.js loaded successfully");
 const WS_HOST = "52.78.32.242"; // EC2 IP
 //const WS_HOST = "192.168.0.57"; // local IP
 //const WS_PORT = 8000;
-const WS_URL = `ws://${WS_HOST}/ws/control`;
+const WS_URL = `wss://${WS_HOST}/ws/control`;
 
 const CAM_HOST = "192.168.0.100"; // Raspberry Pi (web_video_server)
 const MJPEG_STREAM_URL = `http://${CAM_HOST}:8080/stream?topic=/image_raw&type=ros_compressed&width=640&height=480&quality=50`;
@@ -43,110 +43,146 @@ const mapContainer = mapCanvas.closest(".w-full.h-full");
 // 3. 상태 정의
 // ===========================
 const statusConfigs = {
-  순찰중: { class: "bg-green-200 text-green-800", icon: "fas fa-route" },
-  복귀중: { class: "bg-indigo-200 text-indigo-800", icon: "fas fa-home" },
-  충전중: { class: "bg-blue-200 text-blue-800", icon: "fas fa-charging-station" },
-  정지: { class: "bg-red-200 text-red-800", icon: "fas fa-stop-circle" },
-  임무완료: { class: "bg-teal-200 text-teal-800", icon: "fas fa-check-circle" },
-  "대기 중": { class: "bg-gray-200 text-gray-800", icon: "fas fa-ellipsis-h" },
-  "연결 오류": { class: "bg-red-200 text-red-800", icon: "fas fa-exclamation-triangle" },
-  "연결 끊김": { class: "bg-yellow-200 text-yellow-800", icon: "fas fa-plug" },
+    순찰중: { class: "bg-green-200 text-green-800", icon: "fas fa-route" },
+    복귀중: { class: "bg-indigo-200 text-indigo-800", icon: "fas fa-home" },
+    충전중: {
+        class: "bg-blue-200 text-blue-800",
+        icon: "fas fa-charging-station",
+    },
+    정지: { class: "bg-red-200 text-red-800", icon: "fas fa-stop-circle" },
+    임무완료: {
+        class: "bg-teal-200 text-teal-800",
+        icon: "fas fa-check-circle",
+    },
+    "대기 중": {
+        class: "bg-gray-200 text-gray-800",
+        icon: "fas fa-ellipsis-h",
+    },
+    "연결 오류": {
+        class: "bg-red-200 text-red-800",
+        icon: "fas fa-exclamation-triangle",
+    },
+    "연결 끊김": {
+        class: "bg-yellow-200 text-yellow-800",
+        icon: "fas fa-plug",
+    },
 };
 
 function updateRobotStatus(key) {
-  const cfg = statusConfigs[key] || statusConfigs["대기 중"];
-  robotStatusEl.innerHTML = `<i class="${cfg.icon} mr-3"></i> ${key}`;
-  robotStatusEl.className = "status-badge " + cfg.class;
+    const cfg = statusConfigs[key] || statusConfigs["대기 중"];
+    robotStatusEl.innerHTML = `<i class="${cfg.icon} mr-3"></i> ${key}`;
+    robotStatusEl.className = "status-badge " + cfg.class;
 }
 
 // ===========================
 // 4. WebSocket 통신
 // ===========================
 let ws = null,
-  isConnected = false;
+    isConnected = false;
 let mapBuffer = null,
-  mapBufferCtx = null;
+    mapBufferCtx = null;
 let mapMeta = { w: 0, h: 0, res: 0.05, ox: 0, oy: 0 };
 let robotPose = { x: null, y: null, yaw: 0 };
 
 function connectWS() {
-  ws = new WebSocket(WS_URL);
+    ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => {
-    isConnected = true;
-    statusIndicator.classList.replace("bg-red-500", "bg-green-500");
-    statusText.textContent = "서버 연결됨";
-    statusText.classList.replace("text-red-700", "text-green-700");
-    updateRobotStatus("대기 중");
-  };
+    ws.onopen = () => {
+        isConnected = true;
+        statusIndicator.classList.replace("bg-red-500", "bg-green-500");
+        statusText.textContent = "서버 연결됨";
+        statusText.classList.replace("text-red-700", "text-green-700");
+        updateRobotStatus("대기 중");
+    };
 
-  ws.onerror = () => {
-    statusIndicator.classList.replace("bg-green-500", "bg-red-500");
-    statusText.textContent = "서버 오류";
-    statusText.classList.replace("text-green-700", "text-red-700");
-    updateRobotStatus("연결 오류");
-  };
+    ws.onerror = () => {
+        statusIndicator.classList.replace("bg-green-500", "bg-red-500");
+        statusText.textContent = "서버 오류";
+        statusText.classList.replace("text-green-700", "text-red-700");
+        updateRobotStatus("연결 오류");
+    };
 
-  ws.onclose = () => {
-    isConnected = false;
-    statusIndicator.classList.replace("bg-green-500", "bg-yellow-500");
-    statusText.textContent = "서버 연결 끊김";
-    statusText.classList.replace("text-green-700", "text-yellow-700");
-    updateRobotStatus("연결 끊김");
-    setTimeout(connectWS, 2000);
-  };
+    ws.onclose = () => {
+        isConnected = false;
+        statusIndicator.classList.replace("bg-green-500", "bg-yellow-500");
+        statusText.textContent = "서버 연결 끊김";
+        statusText.classList.replace("text-green-700", "text-yellow-700");
+        updateRobotStatus("연결 끊김");
+        setTimeout(connectWS, 2000);
+    };
 
-  ws.onmessage = (event) => {
-    let data = null;
-    try {
-      data = JSON.parse(event.data);
-    } catch (e) {
-      return;
-    }
-    handleMessage(data);
-  };
+    ws.onmessage = (event) => {
+        let data = null;
+        try {
+            data = JSON.parse(event.data);
+        } catch (e) {
+            return;
+        }
+        handleMessage(data);
+    };
 }
 
 function wsSend(obj) {
-  if (isConnected) ws.send(JSON.stringify(obj));
+    if (isConnected) ws.send(JSON.stringify(obj));
 }
 
 // ===========================
 // 5. 메시지 처리
 // ===========================
 function handleMessage(m) {
-  switch (m.type) {
-    case "map":
-      drawMap(m);
-      break;
-    case "amcl_pose":
-      updatePose(m);
-      break;
-    case "battery":
-      elBatt.textContent = `${m.percentage ?? 0}%`;
-      break;
-    case "distance":
-      elDist.textContent = `${(m.meters ?? 0).toFixed(2)} m`;
-      break;
-    case "time":
-      elTime.textContent = `${(m.minutes ?? 0).toFixed(1)} min`;
-      break;
-    case "state":
-      updateRobotStatus(m.text);
-      break;
-    case "env":
-      if (m.temp !== null)
-        document.getElementById("metric-temp").textContent = `${m.temp.toFixed(1)} °C`;
-      if (m.hum !== null)
-        document.getElementById("metric-humi").textContent = `${m.hum.toFixed(1)} %`;
-      if (m.co2 !== null)
-        document.getElementById("metric-co2").textContent = `${m.co2.toFixed(0)} ppm`;
-      if (m.tvoc !== null)
-        document.getElementById("metric-tvoc").textContent = `${m.tvoc.toFixed(0)} ppb`;
-      if (m.lpg !== null)
-        document.getElementById("metric-lpg").textContent = `${m.lpg.toFixed(2)} ppm`;
-      break;
-  }
+    switch (m.type) {
+        case "map":
+            drawMap(m);
+            break;
+        case "amcl_pose":
+            updatePose(m);
+            break;
+        case "battery":
+            elBatt.textContent = `${m.percentage ?? 0}%`;
+            break;
+        case "distance":
+            elDist.textContent = `${(m.meters ?? 0).toFixed(2)} m`;
+            break;
+        case "time":
+            elTime.textContent = `${(m.minutes ?? 0).toFixed(1)} min`;
+            break;
+        case "state":
+            updateRobotStatus(m.text);
+            break;
+        case "env":
+            if (m.temp !== null)
+                document.getElementById(
+                    "metric-temp"
+                ).textContent = `${m.temp.toFixed(1)} °C`;
+            if (m.hum !== null)
+                document.getElementById(
+                    "metric-humi"
+                ).textContent = `${m.hum.toFixed(1)} %`;
+            if (m.co2 !== null)
+                document.getElementById(
+                    "metric-co2"
+                ).textContent = `${m.co2.toFixed(0)} ppm`;
+            if (m.tvoc !== null)
+                document.getElementById(
+                    "metric-tvoc"
+                ).textContent = `${m.tvoc.toFixed(0)} ppb`;
+            if (m.lpg !== null)
+                document.getElementById(
+                    "metric-lpg"
+                ).textContent = `${m.lpg.toFixed(2)} ppm`;
+            break;
+    }
+}
+
+function updatePose(m) {
+    robotPose = { x: m.x, y: m.y, yaw: m.yaw };
+
+    const xf = m.x?.toFixed(2) ?? "0.00";
+    const yf = m.y?.toFixed(2) ?? "0.00";
+
+    robotLocation.textContent = `X=${xf} m, Y=${yf} m`;
+
+    drawRobot();
 }
 
 // ===========================
@@ -233,21 +269,13 @@ function drawRobot() {
 
         mapCtx.save();
         mapCtx.translate(p.x, p.y);
-        mapCtx.rotate(robotPose.yaw);      // 로봇 방향은 여기서만 회전
+        mapCtx.rotate(robotPose.yaw); // 로봇 방향은 여기서만 회전
 
         // 로봇 위치 점
         mapCtx.fillStyle = "#ef4444";
         mapCtx.beginPath();
         mapCtx.arc(0, 0, size, 0, 2 * Math.PI);
         mapCtx.fill();
-
-        // 방향 화살표
-        mapCtx.beginPath();
-        mapCtx.moveTo(0, 0);
-        mapCtx.lineTo(size * 2, 0);
-        mapCtx.strokeStyle = "white";
-        mapCtx.lineWidth = 2;
-        mapCtx.stroke();
 
         mapCtx.restore();
     }
@@ -282,98 +310,135 @@ let isVideoRunning = false;
 let currentMainView = "map";
 
 window.toggleMainView = function (view) {
-  if (view === currentMainView) return;
-  if (view === "map") {
-    mapMain.classList.remove("hidden");
-    videoMain.classList.add("hidden");
-    mapSmall.classList.add("hidden");
-    videoSmall.classList.remove("hidden");
-    patrolControlMap.classList.remove("hidden");
-    robotLocationCard.classList.remove("hidden");
-    manualControl.classList.add("hidden");
-    currentMainView = "map";
-  } else {
-    videoMain.classList.remove("hidden");
-    mapMain.classList.add("hidden");
-    videoSmall.classList.add("hidden");
-    mapSmall.classList.remove("hidden");
-    manualControl.classList.remove("hidden");
-    patrolControlMap.classList.add("hidden");
-    robotLocationCard.classList.add("hidden");
-    currentMainView = "video";
-    if (!isVideoRunning) toggleVideoFeed(true);
-  }
+    if (view === currentMainView) return;
+    if (view === "map") {
+        mapMain.classList.remove("hidden");
+        videoMain.classList.add("hidden");
+        mapSmall.classList.add("hidden");
+        videoSmall.classList.remove("hidden");
+        patrolControlMap.classList.remove("hidden");
+        robotLocationCard.classList.remove("hidden");
+        manualControl.classList.add("hidden");
+        currentMainView = "map";
+    } else {
+        videoMain.classList.remove("hidden");
+        mapMain.classList.add("hidden");
+        videoSmall.classList.add("hidden");
+        mapSmall.classList.remove("hidden");
+        manualControl.classList.remove("hidden");
+        patrolControlMap.classList.add("hidden");
+        robotLocationCard.classList.add("hidden");
+        currentMainView = "video";
+        if (!isVideoRunning) toggleVideoFeed(true);
+    }
 };
 
 window.toggleVideoFeed = function (forceStart) {
-  const newState = typeof forceStart === "boolean" ? forceStart : !isVideoRunning;
-  const button = document.querySelector('.btn-action[onclick="toggleVideoFeed()"]');
+    const newState =
+        typeof forceStart === "boolean" ? forceStart : !isVideoRunning;
+    const button = document.querySelector(
+        '.btn-action[onclick="toggleVideoFeed()"]'
+    );
 
-  if (newState) {
-    webcamFeed.src = MJPEG_STREAM_URL;
-    webcamSmallFeed.src = MJPEG_STREAM_URL;
-    document.getElementById("video-placeholder")?.classList.add("hidden");
-    if (button) {
-      button.innerHTML = '<i class="fas fa-camera-slash mr-2"></i> 웹캠 중지';
-      button.classList.replace("bg-blue-500", "bg-red-500");
+    if (newState) {
+        webcamFeed.src = MJPEG_STREAM_URL;
+        webcamSmallFeed.src = MJPEG_STREAM_URL;
+        document.getElementById("video-placeholder")?.classList.add("hidden");
+        if (button) {
+            button.innerHTML =
+                '<i class="fas fa-camera-slash mr-2"></i> 웹캠 중지';
+            button.classList.replace("bg-blue-500", "bg-red-500");
+        }
+        isVideoRunning = true;
+    } else {
+        webcamFeed.src = "";
+        webcamSmallFeed.src = "";
+        document
+            .getElementById("video-placeholder")
+            ?.classList.remove("hidden");
+        if (button) {
+            button.innerHTML = '<i class="fas fa-camera mr-2"></i> 웹캠 시작';
+            button.classList.replace("bg-red-500", "bg-blue-500");
+        }
+        isVideoRunning = false;
     }
-    isVideoRunning = true;
-  } else {
-    webcamFeed.src = "";
-    webcamSmallFeed.src = "";
-    document.getElementById("video-placeholder")?.classList.remove("hidden");
-    if (button) {
-      button.innerHTML = '<i class="fas fa-camera mr-2"></i> 웹캠 시작';
-      button.classList.replace("bg-red-500", "bg-blue-500");
-    }
-    isVideoRunning = false;
-  }
 };
 
 // ===========================
 // 8. 명령 전송 (미션, 수동 제어)
 // ===========================
 window.publishCommand = function (command) {
-  if (!isConnected) return;
-  const speed = 0.4,
-    turn = 0.8;
-  let lin = 0,
-    ang = 0;
+    if (!isConnected) return;
+    const speed = 0.4,
+        turn = 0.8;
+    let lin = 0,
+        ang = 0;
 
-  switch (command) {
-    case "forward":
-      lin = speed;
-      break;
-    case "backward":
-      lin = -speed;
-      break;
-    case "left":
-      ang = turn;
-      break;
-    case "right":
-      ang = -turn;
-      break;
-    case "stop":
-      updateRobotStatus("정지");
-      wsSend({ type: "cmd_vel", linear: 0.0, angular: 0.0 });
-      return;
-  }
+    switch (command) {
+        case "forward":
+            lin = speed;
+            break;
+        case "backward":
+            lin = -speed;
+            break;
+        case "left":
+            ang = turn;
+            break;
+        case "right":
+            ang = -turn;
+            break;
+        case "stop":
+            updateRobotStatus("정지");
+            wsSend({ type: "cmd_vel", linear: 0.0, angular: 0.0 });
+            return;
+    }
 
-  wsSend({ type: "cmd_vel", linear: lin, angular: ang });
+    wsSend({ type: "cmd_vel", linear: lin, angular: ang });
 };
 
 window.publishMission = function (missionType) {
-  if (!isConnected) return;
-  const map = {
-    single: { text: "1회 순찰을 시작합니다.", action: "single", status: "순찰중" },
-    repeat: { text: "반복 순찰을 시작합니다.", action: "repeat", status: "순찰중" },
-    return: { text: "복귀 명령을 전송했습니다.", action: "return", status: "복귀중" },
-  };
-  const m = map[missionType];
-  if (!m) return;
-  wsSend({ type: "patrol", action: m.action });
-  updateRobotStatus(m.status);
-  customAlert(m.text);
+    if (!isConnected) return;
+    const map = {
+        single: {
+            text: "1회 순찰을 시작합니다.",
+            action: "single",
+            status: "순찰중",
+        },
+        repeat: {
+            text: "반복 순찰을 시작합니다.",
+            action: "repeat",
+            status: "순찰중",
+        },
+        return: {
+            text: "복귀 명령을 전송했습니다.",
+            action: "return",
+            status: "복귀중",
+        },
+        pause: {
+            text: "순찰을 일시정지했습니다.",
+            action: "pause",
+            status: "정지",
+        },
+        resume: {
+            text: "순찰을 재개합니다.",
+            action: "resume",
+            status: "순찰중",
+        },
+    };
+    const m = map[missionType];
+    if (!m) return;
+    wsSend({ type: "patrol", action: m.action });
+    updateRobotStatus(m.status);
+    customAlert(m.text);
+};
+
+window.publishPatrolStop = function () {
+    if (!isConnected) return;
+
+    wsSend({ type: "patrol", action: "stop" });
+
+    updateRobotStatus("정지");
+    customAlert("순찰을 즉지 정시했습니다.");
 };
 
 // ===========================
@@ -383,96 +448,97 @@ let isDrawingPatrolArea = false;
 let patrolAreaPoints = [];
 
 function handleMapClick(e) {
-  if (!isDrawingPatrolArea) return;
+    if (!isDrawingPatrolArea) return;
 
-  const rect = mapCanvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left);
-  const y = (e.clientY - rect.top);
+    const rect = mapCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
-  // 현재 회전/스케일 고려한 실제 좌표 변환 (역변환)
-  const viewW = mapCanvas.clientWidth;
-  const viewH = mapCanvas.clientHeight;
-  const scale = Math.min(viewW / mapMeta.w, viewH / mapMeta.h);
-  const offX = (viewW - mapMeta.w * scale) / 2;
-  const offY = (viewH - mapMeta.h * scale) / 2;
+    // 현재 회전/스케일 고려한 실제 좌표 변환 (역변환)
+    const viewW = mapCanvas.clientWidth;
+    const viewH = mapCanvas.clientHeight;
+    const scale = Math.min(viewW / mapMeta.w, viewH / mapMeta.h);
+    const offX = (viewW - mapMeta.w * scale) / 2;
+    const offY = (viewH - mapMeta.h * scale) / 2;
 
-  const px = (x - offX) / scale;
-  const py = (y - offY) / scale;
+    const px = (x - offX) / scale;
+    const py = (y - offY) / scale;
 
-  patrolAreaPoints.push({ x: px, y: py });
-  drawRobot();
+    patrolAreaPoints.push({ x: px, y: py });
+    drawRobot();
 }
 
-
 function drawPatrolArea() {
-  const ctx = mapCanvas.getContext("2d");
-  ctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+    const ctx = mapCanvas.getContext("2d");
+    ctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
 
-  if (patrolAreaPoints.length > 0) {
-    ctx.strokeStyle = "#ef4444";
-    ctx.lineWidth = 4;
-    ctx.fillStyle = "rgba(239,68,68,0.2)";
-    ctx.beginPath();
-    ctx.moveTo(patrolAreaPoints[0].x, patrolAreaPoints[0].y);
-    for (let i = 1; i < patrolAreaPoints.length; i++) ctx.lineTo(patrolAreaPoints[i].x, patrolAreaPoints[i].y);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.fill();
+    if (patrolAreaPoints.length > 0) {
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 4;
+        ctx.fillStyle = "rgba(239,68,68,0.2)";
+        ctx.beginPath();
+        ctx.moveTo(patrolAreaPoints[0].x, patrolAreaPoints[0].y);
+        for (let i = 1; i < patrolAreaPoints.length; i++)
+            ctx.lineTo(patrolAreaPoints[i].x, patrolAreaPoints[i].y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.fill();
 
-    patrolAreaPoints.forEach((p) => {
-      ctx.fillStyle = "#10b981";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-  }
+        patrolAreaPoints.forEach((p) => {
+            ctx.fillStyle = "#10b981";
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+            ctx.fill();
+        });
+    }
 }
 
 window.startDrawingPatrolArea = function () {
-  if (isDrawingPatrolArea) {
-    stopDrawingPatrolArea(true);
-    return;
-  }
-  isDrawingPatrolArea = true;
-  patrolAreaPoints = [];
-  mapContainer.classList.add("drawing-active");
-  const btn = document.getElementById("draw-patrol-btn");
-  btn.classList.replace("bg-purple-500", "bg-red-500");
-  btn.innerHTML = '<i class="fas fa-times-circle mr-2"></i> 구역 그리기 취소';
-  mapCanvas.addEventListener("click", handleMapClick);
+    if (isDrawingPatrolArea) {
+        stopDrawingPatrolArea(true);
+        return;
+    }
+    isDrawingPatrolArea = true;
+    patrolAreaPoints = [];
+    mapContainer.classList.add("drawing-active");
+    const btn = document.getElementById("draw-patrol-btn");
+    btn.classList.replace("bg-purple-500", "bg-red-500");
+    btn.innerHTML = '<i class="fas fa-times-circle mr-2"></i> 구역 그리기 취소';
+    mapCanvas.addEventListener("click", handleMapClick);
 };
 
 window.stopDrawingPatrolArea = function (reset = true) {
-  isDrawingPatrolArea = false;
-  mapContainer.classList.remove("drawing-active");
-  mapCanvas.removeEventListener("click", handleMapClick);
-  const btn = document.getElementById("draw-patrol-btn");
-  btn.classList.replace("bg-red-500", "bg-purple-500");
-  btn.innerHTML = '<i class="fas fa-mouse-pointer mr-2"></i> 지도에 구역 그리기 시작';
-  document.getElementById("set-patrol-btn").classList.add("hidden");
-  if (reset) {
-    patrolAreaPoints = [];
-    const ctx = mapCanvas.getContext("2d");
-    ctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
-  }
+    isDrawingPatrolArea = false;
+    mapContainer.classList.remove("drawing-active");
+    mapCanvas.removeEventListener("click", handleMapClick);
+    const btn = document.getElementById("draw-patrol-btn");
+    btn.classList.replace("bg-red-500", "bg-purple-500");
+    btn.innerHTML =
+        '<i class="fas fa-mouse-pointer mr-2"></i> 지도에 구역 그리기 시작';
+    document.getElementById("set-patrol-btn").classList.add("hidden");
+    if (reset) {
+        patrolAreaPoints = [];
+        const ctx = mapCanvas.getContext("2d");
+        ctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+    }
 };
 
 window.setPatrolArea = function () {
-  if (patrolAreaPoints.length < 3) {
-    customAlert("3개 이상의 점을 지정해야 합니다.");
-    return;
-  }
-  stopDrawingPatrolArea(false);
-  console.table(patrolAreaPoints);
-  customAlert("순찰 구역 설정 완료!");
+    if (patrolAreaPoints.length < 3) {
+        customAlert("3개 이상의 점을 지정해야 합니다.");
+        return;
+    }
+    stopDrawingPatrolArea(false);
+    console.table(patrolAreaPoints);
+    customAlert("순찰 구역 설정 완료!");
 };
 
 // ===========================
 // 10. 커스텀 알림
 // ===========================
 window.customAlert = function (message) {
-  const tempDiv = document.createElement("div");
-  tempDiv.innerHTML = `
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = `
     <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div class="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full">
         <p class="text-xl font-bold text-blue-600 mb-4 flex items-center">
@@ -482,14 +548,14 @@ window.customAlert = function (message) {
         <button onclick="this.closest('.fixed').remove()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg w-full transition">확인</button>
       </div>
     </div>`;
-  document.body.appendChild(tempDiv);
+    document.body.appendChild(tempDiv);
 };
 
 // ===========================
 // 11. 초기화
 // ===========================
 window.onload = function () {
-  connectWS();
-  toggleMainView("map");
-  toggleVideoFeed(false);
+    connectWS();
+    toggleMainView("map");
+    toggleVideoFeed(false);
 };
