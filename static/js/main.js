@@ -1,13 +1,11 @@
-console.log("main.js loaded successfully");
-
 // ===========================
 // 1. 연결 설정
 // ===========================
 const WS_HOST = "52.78.32.242"; // EC2 IP
 //const WS_HOST = "192.168.0.57"; // local IP
-//const WS_PORT = 8000;
+const WS_PORT = 8000;
+//const WS_URL = `wss://${WS_HOST}:${WS_PORT}/ws/control`;
 const WS_URL = `wss://${WS_HOST}/ws/control`;
-
 const CAM_HOST = "192.168.0.100"; // Raspberry Pi (web_video_server)
 const MJPEG_STREAM_URL = `http://${CAM_HOST}:8080/stream?topic=/image_raw&type=ros_compressed&width=640&height=480&quality=50`;
 
@@ -44,12 +42,18 @@ const mapContainer = mapCanvas.closest(".w-full.h-full");
 // ===========================
 const statusConfigs = {
     순찰중: { class: "bg-green-200 text-green-800", icon: "fas fa-route" },
+    "1회 순찰 중": { class: "bg-green-200 text-green-800", icon: "fas fa-route" },
+    "반복 순찰 중": { class: "bg-green-200 text-green-800", icon: "fas fa-sync-alt" },
     복귀중: { class: "bg-indigo-200 text-indigo-800", icon: "fas fa-home" },
+    "복귀 중": { class: "bg-indigo-200 text-indigo-800", icon: "fas fa-home" },
     충전중: {
         class: "bg-blue-200 text-blue-800",
         icon: "fas fa-charging-station",
     },
     정지: { class: "bg-red-200 text-red-800", icon: "fas fa-stop-circle" },
+    전진중: { class: "bg-blue-200 text-blue-800", icon: "fas fa-arrow-up" },
+    후진중: { class: "bg-blue-200 text-blue-800", icon: "fas fa-arrow-down" },
+    회전중: { class: "bg-blue-200 text-blue-800", icon: "fas fa-sync-alt" },
     임무완료: {
         class: "bg-teal-200 text-teal-800",
         icon: "fas fa-check-circle",
@@ -68,9 +72,59 @@ const statusConfigs = {
     },
 };
 
-function updateRobotStatus(key) {
-    const cfg = statusConfigs[key] || statusConfigs["대기 중"];
-    robotStatusEl.innerHTML = `<i class="${cfg.icon} mr-3"></i> ${key}`;
+function updateRobotStatus(key, currentZone = "", task = "", zoneLabel = "") {
+    let cfg = statusConfigs[key];
+
+    if (!cfg) {
+        if (key.includes("순찰")) {
+            // 구역 순찰이든, 전체 순찰이든 다 같은 스타일 사용
+            cfg = statusConfigs["순찰중"] || statusConfigs["1회 순찰 중"];
+        } else if (key.includes("복귀")) {
+            cfg = statusConfigs["복귀 중"];
+        } else if (key.includes("정지") || key.includes("일시정지")) {
+            cfg = statusConfigs["정지"];
+        } else {
+            cfg = statusConfigs["대기 중"];
+        }
+    }
+
+    // 2) 어떤 구역 텍스트를 보여줄지 결정
+    //   - currentZone : PatrolManager 에서 보내주는 현재 구역 (예: "A")
+    //   - zoneLabel   : 프론트에서 만든 라벨 (예: "A", "A → B → C")
+    let zoneName = "";
+    if (currentZone && currentZone.length > 0) {
+        zoneName = currentZone;              // 실제 현재 구역이 있으면 그걸 우선
+    } else if (zoneLabel && zoneLabel.length > 0) {
+        zoneName = zoneLabel;               // 아직 status가 안 들어왔을 때 임시 표시
+    }
+
+    let extra = "";
+    if (zoneName) {
+        if (task === "zone_seq" || zoneName.includes("→")) {
+            // 시퀀스 순찰일 때는 “선택 구역 시퀀스” 형식으로
+            extra = `
+              <div class="mt-1 text-sm text-gray-600">
+                선택 구역 시퀀스:
+                <span class="font-bold">${zoneName}</span>
+              </div>`;
+        } else {
+            // 단일 구역 순찰 또는 “현재 구역” 정보 있을 때
+            extra = `
+              <div class="mt-1 text-sm text-gray-600">
+                (현재 <span class="font-bold">${zoneName}</span> 구역)
+              </div>`;
+        }
+    }
+
+    // 3) 뱃지 렌더링
+    robotStatusEl.innerHTML = `
+      <div class="flex flex-col items-center">
+        <div class="flex items-center">
+          <i class="${cfg.icon} mr-3"></i> ${key}
+        </div>
+        ${extra}
+      </div>
+    `;
     robotStatusEl.className = "status-badge " + cfg.class;
 }
 
@@ -83,6 +137,9 @@ let mapBuffer = null,
     mapBufferCtx = null;
 let mapMeta = { w: 0, h: 0, res: 0.05, ox: 0, oy: 0 };
 let robotPose = { x: null, y: null, yaw: 0 };
+let zonesOverlay = {};
+let selectedZones = [];
+let selectedMode = "once";
 
 function connectWS() {
     ws = new WebSocket(WS_URL);
@@ -147,7 +204,7 @@ function handleMessage(m) {
             elTime.textContent = `${(m.minutes ?? 0).toFixed(1)} min`;
             break;
         case "state":
-            updateRobotStatus(m.text);
+            updateRobotStatus(m.text, m.current_zone || "", m.task || "");
             break;
         case "env":
             if (m.temp !== null)
@@ -171,6 +228,27 @@ function handleMessage(m) {
                     "metric-lpg"
                 ).textContent = `${m.lpg.toFixed(2)} ppm`;
             break;
+        case "fire_alarm": // <<<<<<<<<<<<<<< 화재 감지 알람 처리 추가
+            showFireAlert(m.message, m.lpg);
+            break;
+        case "zones":
+            zonesOverlay = m.zones || {};
+            drawRobot();
+            break;
+    }
+}
+
+// ===========================
+// 5.1. 서버 상태 초기화 전송 함수
+// ===========================
+function sendAlertClearSignal() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+            JSON.stringify({
+                type: "alert_clear", // 서버가 인식할 메시지 타입
+            })
+        );
+        console.log("서버에 화재 알림 상태 초기화 요청 전송.");
     }
 }
 
@@ -280,6 +358,44 @@ function drawRobot() {
         mapCtx.restore();
     }
 
+    if (zonesOverlay && Object.keys(zonesOverlay).length > 0) {
+        mapCtx.lineWidth = 1;  // 테두리 얇게
+        mapCtx.strokeStyle = "#6366f1";
+
+        for (const [zname, poly] of Object.entries(zonesOverlay)) {
+            if (!Array.isArray(poly) || poly.length < 3) continue;
+
+            // === 1) 테두리 그리기 ===
+            mapCtx.beginPath();
+            poly.forEach(([wx, wy], idx) => {
+                const p = worldToPixel(wx, wy);
+                if (idx === 0) mapCtx.moveTo(p.x, p.y);
+                else mapCtx.lineTo(p.x, p.y);
+            });
+            mapCtx.closePath();
+            mapCtx.stroke();
+
+            // === 2) 중앙값(centroid) 계산 ===
+            let cx = 0, cy = 0;
+            poly.forEach(([wx, wy]) => {
+                cx += wx;
+                cy += wy;
+            });
+            cx /= poly.length;
+            cy /= poly.length;
+
+            const center = worldToPixel(cx, cy);
+
+            // === 3) 중앙에 텍스트 표시 ===
+            mapCtx.fillStyle = "#111827";
+            mapCtx.font = "bold 15px sans-serif"; // 글씨 좀 더 크게
+            mapCtx.textAlign = "center";
+            mapCtx.textBaseline = "middle";
+            mapCtx.fillText(zname, center.x, center.y);
+        }
+    }
+
+
     // === 4) 순찰 구역 폴리곤 (지도 좌표계 그대로 사용) ===
     if (patrolAreaPoints.length > 0) {
         mapCtx.beginPath();
@@ -330,6 +446,8 @@ window.toggleMainView = function (view) {
         robotLocationCard.classList.add("hidden");
         currentMainView = "video";
         if (!isVideoRunning) toggleVideoFeed(true);
+
+        wsSend({ type: "patrol", action: "stop" });
     }
 };
 
@@ -365,35 +483,118 @@ window.toggleVideoFeed = function (forceStart) {
 };
 
 // ===========================
+// X. 구역 선택 관련 함수
+// ===========================
+window.toggleZoneSelect = function (zone) {
+    const idx = selectedZones.indexOf(zone);
+    if (idx >= 0) {
+        selectedZones.splice(idx, 1);
+    } else {
+        selectedZones.push(zone);
+    }
+    updateZoneButtonsUI();
+};
+
+window.setZoneMode = function (mode) {
+    // mode: "once" | "repeat"
+    selectedMode = mode;
+    updateZoneModeUI();
+};
+
+window.runZonePatrol = function () {
+    if (!isConnected) {
+        customAlert("서버와 연결되어 있지 않습니다.");
+        return;
+    }
+    if (selectedZones.length === 0) {
+        customAlert("최소 1개 이상의 구역을 선택하세요.");
+        return;
+    }
+
+    wsSend({
+        type: "zone_patrol",
+        mode: selectedMode,     // "once" or "repeat"
+        zones: selectedZones,   // ["A"], ["A","C","D"] 등
+    });
+
+    const label = selectedZones.join(" → ");
+    const modeText = selectedMode === "repeat" ? "반복" : "1회";
+
+    updateRobotStatus(
+        `${modeText} 구역 순찰`,
+        "",
+        selectedZones.length > 1 ? "zone_seq" : "zone_route",
+        label
+    );
+
+    customAlert(`${label} 구역(${modeText}) 순찰을 시작합니다.`);
+};
+
+// UI 반영용
+function updateZoneButtonsUI() {
+    ["A","B","C","D"].forEach((z) => {
+        const btn = document.getElementById(`zone-btn-${z}`);
+        if (!btn) return;
+        if (selectedZones.includes(z)) {
+            btn.classList.add("bg-indigo-600", "text-white");
+            btn.classList.remove("bg-gray-100", "text-gray-700");
+        } else {
+            btn.classList.remove("bg-indigo-600", "text-white");
+            btn.classList.add("bg-gray-100", "text-gray-700");
+        }
+    });
+}
+
+function updateZoneModeUI() {
+    ["once", "repeat"].forEach((m) => {
+        const btn = document.getElementById(`zone-mode-${m}`);
+        if (!btn) return;
+        if (selectedMode === m) {
+            btn.classList.add("bg-blue-600", "text-white");
+            btn.classList.remove("bg-gray-100", "text-gray-700");
+        } else {
+            btn.classList.remove("bg-blue-600", "text-white");
+            btn.classList.add("bg-gray-100", "text-gray-700");
+        }
+    });
+}
+
+// ===========================
 // 8. 명령 전송 (미션, 수동 제어)
 // ===========================
 window.publishCommand = function (command) {
     if (!isConnected) return;
-    const speed = 0.4,
-        turn = 0.8;
-    let lin = 0,
-        ang = 0;
+
+    let action = null;
+    let status = null;
 
     switch (command) {
         case "forward":
-            lin = speed;
+            action = "manual_forward";
+            status = "수동 전진";
             break;
         case "backward":
-            lin = -speed;
+            action = "manual_backward";
+            status = "수동 후진";
             break;
         case "left":
-            ang = turn;
+            action = "manual_left";
+            status = "수동 좌회전";
             break;
         case "right":
-            ang = -turn;
+            action = "manual_right";
+            status = "수동 우회전";
             break;
         case "stop":
-            updateRobotStatus("정지");
-            wsSend({ type: "cmd_vel", linear: 0.0, angular: 0.0 });
+            action = "manual_stop";
+            status = "정지";
+            break;
+        default:
             return;
     }
 
-    wsSend({ type: "cmd_vel", linear: lin, angular: ang });
+    wsSend({ type: "patrol", action });   // ← /patrol/cmd 로 문자열 전송
+    if (status) updateRobotStatus(status);
 };
 
 window.publishMission = function (missionType) {
@@ -438,7 +639,7 @@ window.publishPatrolStop = function () {
     wsSend({ type: "patrol", action: "stop" });
 
     updateRobotStatus("정지");
-    customAlert("순찰을 즉지 정시했습니다.");
+    customAlert("순찰을 즉지 정지했습니다.");
 };
 
 // ===========================
@@ -546,6 +747,46 @@ window.customAlert = function (message) {
         </p>
         <p class="text-gray-700 mb-6">${message}</p>
         <button onclick="this.closest('.fixed').remove()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg w-full transition">확인</button>
+      </div>
+    </div>`;
+    document.body.appendChild(tempDiv);
+};
+
+// 화재 감지 알람 전용 함수 추가
+window.showFireAlert = function (message, lpg_value) {
+    // 알람이 이미 떠있으면 중복 방지
+    if (document.getElementById("fire-alert-modal")) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.id = "fire-alert-modal";
+    tempDiv.innerHTML = `
+    <div class="fixed inset-0 bg-red-800 bg-opacity-75 flex items-center justify-center z-[100]">
+      <div class="bg-white p-8 rounded-2xl shadow-fire max-w-lg w-full transform transition-all scale-100 border-4 border-red-500">
+        <p class="text-3xl font-extrabold text-red-600 mb-4 flex items-center justify-center animate-pulse">
+          <i class="fas fa-exclamation-triangle mr-3"></i> 긴급 화재 감지 알림
+        </p>
+        <p class="text-xl text-gray-800 mb-6 text-center font-semibold">
+          ${message}
+        </p>
+        <p class="text-lg text-red-500 mb-8 text-center">
+          현재 LPG 수치: ${lpg_value.toFixed(2)} ppm
+        </p>
+        
+        <div class="space-y-4">
+          <button onclick="publishCommand('stop'); this.closest('.fixed').remove(); customAlert('로봇 긴급 정지 명령 전송 완료.'); sendAlertClearSignal();" 
+                    class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
+            <i class="fas fa-stop-circle mr-2"></i> 로봇 긴급 정지
+          </button>
+          
+          <button onclick="publishMission('return'); this.closest('.fixed').remove(); customAlert('로봇 복귀 명령 전송 완료.'); sendAlertClearSignal();" 
+                    class="w-full bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
+            <i class="fas fa-home mr-2"></i> 즉시 복귀
+          </button>
+
+          <button onclick="this.closest('.fixed').remove(); sendAlertClearSignal();" class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-lg transition duration-200">
+            알림 확인
+          </button>
+        </div>
       </div>
     </div>`;
     document.body.appendChild(tempDiv);
