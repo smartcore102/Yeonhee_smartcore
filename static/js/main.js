@@ -227,6 +227,10 @@ function handleMessage(m) {
                 document.getElementById(
                     "metric-lpg"
                 ).textContent = `${m.lpg.toFixed(2)} ppm`;
+            if (m.co !== null)
+                document.getElementById(
+                    "metric-co"
+                ).textContent = `${m.co.toFixed(0)} ppm`;
             break;
         case "fire_alarm": // <<<<<<<<<<<<<<< 화재 감지 알람 처리 추가
             showFireAlert(m.message, m.lpg);
@@ -343,7 +347,7 @@ function drawRobot() {
     // === 3) 로봇 그리기 ===
     if (robotPose.x != null && robotPose.y != null) {
         const p = worldToPixel(robotPose.x, robotPose.y);
-        const size = 5;
+        const size = 3;
 
         mapCtx.save();
         mapCtx.translate(p.x, p.y);
@@ -773,17 +777,21 @@ window.showFireAlert = function (message, lpg_value) {
         </p>
         
         <div class="space-y-4">
-          <button onclick="publishCommand('stop'); this.closest('.fixed').remove(); customAlert('로봇 긴급 정지 명령 전송 완료.'); sendAlertClearSignal();" 
-                    class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
+          <button 
+            onclick="publishPatrolStop(); this.closest('.fixed').remove(); customAlert('로봇 긴급 정지 명령 전송 완료.'); sendAlertClearSignal();" 
+            class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
             <i class="fas fa-stop-circle mr-2"></i> 로봇 긴급 정지
           </button>
           
-          <button onclick="publishMission('return'); this.closest('.fixed').remove(); customAlert('로봇 복귀 명령 전송 완료.'); sendAlertClearSignal();" 
-                    class="w-full bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
+          <button
+            onclick="publishMission('return'); this.closest('.fixed').remove(); customAlert('로봇 복귀 명령 전송 완료.'); sendAlertClearSignal();" 
+            class="w-full bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex items-center justify-center">
             <i class="fas fa-home mr-2"></i> 즉시 복귀
           </button>
 
-          <button onclick="this.closest('.fixed').remove(); sendAlertClearSignal();" class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-lg transition duration-200">
+          <button 
+            onclick="this.closest('.fixed').remove(); sendAlertClearSignal();"
+            class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-lg transition duration-200">
             알림 확인
           </button>
         </div>
