@@ -1,0 +1,61 @@
+frame_id: "map"
+
+home_pose: {x: 0.0, y: 0.0, yaw: 0.0}
+
+poses:
+  - position: {x: 0.0, y: -0.01, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.000, w: 1.000}
+  - position: {x: 2.14, y: -0.0182, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.000, w: 1.000}
+  - position: {x: 1.99, y: 1.98, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.707, w: 0.707}
+  - position: {x: -0.0244, y: 1.99, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 1.000, w: 0.000}
+  - position: {x: -0.0244, y: 3.47, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.707, w: 0.707}
+  - position: {x: 1.99, y: 3.47, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.000, w: 1.000}
+  - position: {x: -0.0244, y: 3.47, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 1.000, w: 0.000}
+  - position: {x: -0.0244, y: 1.99, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: -0.707, w: 0.707}
+  - position: {x: 1.99, y: 1.98, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.000, w: 1.000}
+  - position: {x: 2.14, y: -0.0182, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: -0.707, w: 0.707}
+
+zones:
+  A:
+    polygon:
+      - [-0.831, 0.691]
+      - [2.82, 0.691]
+      - [2.92, -0.769]
+      - [-0.47, -0.889]
+      - [-0.469, -0.626]
+      - [-0.795, -0.614]
+    entry_pose: {x: 0.0, y: -0.01, yaw: 0.0}
+    patrol_waypoints:
+      - {x: 0.0, y: -0.02, yaw: 0.0}
+      - {x: 2.14, y: -0.0182, yaw: 0.0}
+  B:
+    polygon:
+      - [0.527, 0.691]
+      - [2.82, 0.691]
+      - [2.89, 4.11]
+      - [0.527, 4.16]
+    entry_pose: {x: 1.72, y: 1.98, yaw: 0.0}
+    patrol_waypoints:
+      - {x: 2.31, y: 1.04, yaw: 0.0}
+      - {x: 2.31, y: 3.49, yaw: 1.5708}
+      - {x: 1.14, y: 3.49, yaw: 3.1416}
+      - {x: 1.2, y: 1.04, yaw: -1.5708}
+  C:
+    polygon:
+      - [0.527, 4.16]
+      - [-0.855, 4.13]
+      - [-0.808, 1.15]
+      - [0.527, 1.08]
+    entry_pose: {x: -0.01, y: 2.6, yaw: 3.1416}
+    patrol_waypoints:
+      - {x: -0.02, y: 1.82, yaw: -1.5708}
+      - {x: -0.02, y: 3.55, yaw: 1.5708}
