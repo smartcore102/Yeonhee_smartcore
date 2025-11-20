@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import math
+import yaml
 import asyncio
 from datetime import datetime
 from typing import Optional, List
@@ -28,6 +29,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from dotenv import load_dotenv
 
+import requests
 
 # ============================================================
 # 1. 환경 변수 및 FastAPI 기본 설정
@@ -38,7 +40,7 @@ load_dotenv()
 app = FastAPI(title="Patrol Server")
 
 # 정적 파일 및 템플릿
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="/home/ubuntu/security_robot/static"), name="static")
 templates = Jinja2Templates(directory="static")
 
 # CORS
@@ -153,7 +155,7 @@ async def root_page(
 
     error_message = request.query_params.get("error")
     return templates.TemplateResponse(
-        "index.html",
+        "login.html",
         {
             "request": request,
             "error_message": error_message,
@@ -462,19 +464,47 @@ def update_user_post(
     )
 
 
+@app.get("/camera_feed")
+def camera_feed():
+    stream_url = "http://192.168.0.100:8080/stream?topic=/image_raw&type=ros_compressed"
+    r = requests.get(stream_url, stream=True)
+    return Response(r.iter_content(chunk_size=1024),
+                    media_type="multipart/x-mixed-replace; boundary=frame")
+
 # ============================================================
 # 6. ROSBridge 연결 및 WebSocket(/ws/control)
 # ============================================================
 
 # ROSBridge 설정
-ROSBRIDGE_IP = "192.168.0.100"
+ROSBRIDGE_IP = "127.0.0.1"
 ROSBRIDGE_PORT = 9090
 
 ros = roslibpy.Ros(host=ROSBRIDGE_IP, port=ROSBRIDGE_PORT)
 ros_connected = False
 
+WAYPOINTS_FILE = os.environ.get(
+    "WAYPOINTS_FILE",
+    "/home/ubuntu/security_robot/config/waypoints.yaml"  # EC2 내에 waypoints.yaml 경로로 변경
+)
+
+ZONES_POLYGON = {}
+try:
+    with open(WAYPOINTS_FILE, "r") as f:
+        wp_data = yaml.safe_load(f) or {}
+    zones_data = (wp_data.get("zones") or {})
+    for name, zconf in zones_data.items():
+        poly = zconf.get("polygon") or []
+        ZONES_POLYGON[str(name).upper()] = poly
+    print(f"[ZONES] Loaded polygons for zones: {list(ZONES_POLYGON.keys())}")
+except Exception as e:
+    print(f"[ZONES] Failed to load waypoints.yaml for zones overlay: {e}")
+
+#LPG 화재 감지 임계값 (임시 테스트용)
+FIRE_THRESHOLD_LPG = 10.0
+
 # ROS 관련 상태 변수
 main_loop = asyncio.get_event_loop()
+FIRE_ALARM_SENT = False
 latest_state = {"text": "대기 중"}
 latest_amcl = None
 latest_map = None
@@ -487,9 +517,19 @@ latest_env = {
     "hum": None,
     "co2": None,
     "tvoc": None,
-    "lpg": None
+    "lpg": None,
+    "co": None,
 }
 clients: List[WebSocket] = []
+
+latest_patrol = {
+    "task": "none",
+    "current_zone": "",
+    "in_progress": False,
+    "repeat": False,
+    "auto_return": False,
+}
+manual_mode = False
 
 
 def amcl_callback(msg):
@@ -531,6 +571,9 @@ def cmdvel_callback(msg):
     lin = msg["linear"]["x"]
     ang = msg["angular"]["z"]
 
+    if not manual_mode:
+        return
+
     if abs(lin) < 0.01 and abs(ang) < 0.01:
         new_state = "정지"
     elif abs(lin) > abs(ang):
@@ -556,29 +599,75 @@ def tvoc_callback(msg):
 def lpg_callback(msg):
     latest_env["lpg"] = msg["data"]
 
+def co_callback(msg):
+    latest_env["co"] = msg["data"]
+
+def patrol_status_callback(msg):
+    """PatrolManager에서 보내는 /patrol/status(JSON)를 받아서
+       자율주행 상태 / 현재 구역을 갱신"""
+    global latest_patrol, latest_state, manual_mode
+
+    try:
+        data = json.loads(msg.get("data", "{}"))
+    except Exception as e:
+        print(f"[ROS] /patrol/status JSON parse error: {e}, raw={msg}")
+        return
+
+    latest_patrol = data
+
+    # 수동 모드일 때는 상태를 여기서 건드리지 않음
+    if manual_mode:
+        return
+
+    task = data.get("task", "none")
+    in_prog = data.get("in_progress", False)
+    repeat = data.get("repeat", False)
+    current_zone = data.get("current_zone") or ""
+
+    new_text = latest_state["text"]
+
+    if in_prog:
+        if task in ("route", "zone_route", "zone_seq"):
+            new_text = "반복 순찰 중" if repeat else "1회 순찰 중"
+        elif task == "return":
+            new_text = "복귀 중"
+    else:
+        # 진행 중이 아니고 별 일 없으면 대기 상태로
+        if task == "none":
+            new_text = "대기 중"
+
+    if latest_state["text"] != new_text:
+        latest_state["text"] = new_text
+
 # ROS 토픽 정의
-amcl_topic = roslibpy.Topic(ros, "/amcl_pose", "geometry_msgs/PoseWithCovarianceStamped")
-map_topic = roslibpy.Topic(ros, "/map", "nav_msgs/OccupancyGrid")
+amcl_topic = roslibpy.Topic(ros, "/amcl_pose", "geometry_msgs/msg/PoseWithCovarianceStamped")
+map_topic = roslibpy.Topic(ros, "/map", "nav_msgs/msg/OccupancyGrid")
 batt_topic = roslibpy.Topic(ros, "/battery_state", "sensor_msgs/msg/BatteryState")
-cmdvel_pub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/Twist")
-cmdvel_sub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/Twist")
-patrol_pub = roslibpy.Topic(ros, "/patrol/cmd", "std_msgs/String")
+cmdvel_pub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/msg/Twist")
+cmdvel_sub = roslibpy.Topic(ros, "/cmd_vel", "geometry_msgs/msg/Twist")
+patrol_pub = roslibpy.Topic(ros, "/patrol/cmd", "std_msgs/msg/String")
 temp_topic = roslibpy.Topic(ros, "/temp_data", "std_msgs/Float32")
 hum_topic  = roslibpy.Topic(ros, "/hum_data", "std_msgs/Float32")
 co2_topic  = roslibpy.Topic(ros, "/eco2_data", "std_msgs/Float32")
 tvoc_topic = roslibpy.Topic(ros, "/tvoc_data", "std_msgs/Float32")
 lpg_topic  = roslibpy.Topic(ros, "/lpg_data", "std_msgs/Float32")
+co_topic = roslibpy.Topic(ros, "/co_data", "std_msgs/Float32")
+patrol_status_topic = roslibpy.Topic(ros, "/patrol/status", "std_msgs/msg/String")
 
 def setup_ros_topics():
     amcl_topic.subscribe(amcl_callback)
     map_topic.subscribe(map_callback)
     batt_topic.subscribe(batt_callback)
     cmdvel_sub.subscribe(cmdvel_callback)
+    cmdvel_pub.advertise()
     temp_topic.subscribe(temp_callback)
     hum_topic.subscribe(hum_callback)
     co2_topic.subscribe(co2_callback)
     tvoc_topic.subscribe(tvoc_callback)
     lpg_topic.subscribe(lpg_callback)
+    co_topic.subscribe(co_callback)
+    patrol_pub.advertise()
+    patrol_status_topic.subscribe(patrol_status_callback)
     print("[ROS] 토픽 구독 활성화")
 
 
@@ -633,36 +722,51 @@ async def websocket_control(websocket: WebSocket):
     - 클라이언트 -> 서버: cmd_vel, patrol 명령
     - 서버 -> 클라이언트: map, amcl_pose, battery, distance, time, state
     """
-    global total_distance, start_time
+    global total_distance, start_time, FIRE_ALARM_SENT, manual_mode
     await websocket.accept()
     clients.append(websocket)
     print(f"[WS] 클라이언트 연결됨 (총 {len(clients)}명)")
+
+    if ZONES_POLYGON:
+        await websocket.send_json({ "type": "zones", "zones": ZONES_POLYGON })
 
     try:
         while True:
             # 1) 클라이언트에서 들어오는 명령 처리
             try:
                 msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
-                
+                print("aaaaaaaaaaaaaa", msg)
                 data = json.loads(msg)
                 t = data.get("type")
 
                 if t == "patrol":
                     action = data.get("action")
                     if action == "single":
+                        manual_mode = False
                         patrol_pub.publish(roslibpy.Message({"data": "start_once"}))
                         latest_state["text"] = "1회 순찰 중"
                         start_time = time.time()
                         total_distance = 0.0
                     elif action == "repeat":
+                        manual_mode = False
                         patrol_pub.publish(roslibpy.Message({"data": "start_repeat"}))
                         latest_state["text"] = "반복 순찰 중"
                         start_time = time.time()
                         total_distance = 0.0
                     elif action == "return":
+                        manual_mode = False
                         patrol_pub.publish(roslibpy.Message({"data": "return"}))
                         latest_state["text"] = "복귀 중"
+                    elif action == "pause":
+                        manual_mode = False
+                        patrol_pub.publish(roslibpy.Message({"data": "pause"}))
+                        latest_state["text"] = "일시정지"
+                    elif action == "resume":
+                        manual_mode = False
+                        patrol_pub.publish(roslibpy.Message({"data": "resume"}))
+                        latest_state["text"] = "순찰중"
                     elif action == "stop":
+                        manual_mode = False
                         patrol_pub.publish(roslibpy.Message({"data": "stop"}))
                         latest_state["text"] = "정지"
                         cmdvel_pub.publish(
@@ -673,6 +777,26 @@ async def websocket_control(websocket: WebSocket):
                                 }
                             )
                         )
+                    elif action == "manual_forward":
+                        manual_mode = True
+                        patrol_pub.publish(roslibpy.Message({"data": "manual_forward"}))
+                        latest_state["text"] = "전진 중"
+                    elif action == "manual_backward":
+                        manual_mode = True
+                        patrol_pub.publish(roslibpy.Message({"data": "manual_backward"}))
+                        latest_state["text"] = "후진 중"
+                    elif action == "manual_left":
+                        manual_mode = True
+                        patrol_pub.publish(roslibpy.Message({"data": "manual_left"}))
+                        latest_state["text"] = "좌회전 중"
+                    elif action == "manual_right":
+                        manual_mode = True
+                        patrol_pub.publish(roslibpy.Message({"data": "manual_right"}))
+                        latest_state["text"] = "우회전 중"
+                    elif action == "manual_stop":
+                        manual_mode = False
+                        patrol_pub.publish(roslibpy.Message({"data": "manual_stop"}))
+                        latest_state["text"] = "정지"
 
                     await broadcast({"type": "state", "text": latest_state["text"]})
                     print(f"[WS] 순찰 명령 수신: {action}")
@@ -685,11 +809,73 @@ async def websocket_control(websocket: WebSocket):
                         "angular": {"x": 0.0, "y": 0.0, "z": ang},
                     }
                     cmdvel_pub.publish(roslibpy.Message(twist))
+
+                elif t == "alert_clear":
+                    FIRE_ALARM_SENT = False
+
+                elif t == "zone_patrol":
+                    zones = data.get("zones", [])
+                    mode = data.get("mode", "once")
+
+                    if not zones:
+                        continue
+
+                    norm = [str(z).strip().upper() for z in zones if str(z).strip()]
+
+                    if not norm:
+                        continue
+
+                    if len(norm) == 1:
+                        z = norm[0]
+                        cmd_str = f"zone:{z}:repeat" if mode == "repeat" else f"zone:{z}"
+                    else:
+                        seq = ",".join([z.lower() for z in norm])
+                        cmd_str = f"zones:{seq}:repeat" if mode == "repeat" else f"zones:{seq}"
+
+                    patrol_pub.publish(roslibpy.Message({"data": cmd_str}))
+                    manual_mode = False
+                    start_time = time.time()
+                    latest_state["text"] = "반복 순찰 중" if mode == "repeat" else "1회 순찰 중"
+                    await broadcast({"type": "state", "text": latest_state["text"]})
+
+                    print(f"[WS] zone_patrol -> /patrol/cmd: {cmd_str}")
+
             except asyncio.TimeoutError:
                 pass
 
             # 2) ROS -> 클라이언트 주기적 데이터 송신
             await asyncio.sleep(0.2)
+
+            # 2-1) 화재 감지 체크 및 긴급 정지/복귀 명령 전송
+            lpg_value = latest_env.get("lpg")
+            #if lpg_value is not None and lpg_value > FIRE_THRESHOLD_LPG:
+            if lpg_value is not None and lpg_value > 10.0 and not FIRE_ALARM_SENT:
+
+                FIRE_ALARM_SENT = True
+                # 로봇 긴급 정지 및 복귀 명령
+                #patrol_pub.publish(roslibpy.Message({"data": "stop"}))
+                #patrol_pub.publish(roslibpy.Message({"data": "return"}))
+                cmdvel_pub.publish(
+                    roslibpy.Message(
+                        {
+                            "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
+                            "angular": {"x": 0.0, "y": 0.0, "z": 0.0},
+                        }
+                    )
+                )
+                latest_state["text"] = "화재감지/복귀중" # 상태 업데이트
+
+                FIRE_ALARM_SENT = True
+
+                # 클라이언트에게 알람 전송
+                await broadcast(
+                    {
+                        "type": "fire_alarm",
+                        "message": f" 화재 감지! LPG: {lpg_value:.2f} ppm (임계값: {FIRE_THRESHOLD_LPG} ppm)",
+                        "lpg": lpg_value
+                    }
+                )
+                print(f"[ALARM] 화재 감지! LPG: {lpg_value:.2f} ppm. 긴급 정지 및 복귀 명령 전송됨.")
 
             # AMCL 위치, 누적 거리
             if latest_amcl:
@@ -768,6 +954,8 @@ async def websocket_control(websocket: WebSocket):
                 {
                     "type": "state",
                     "text": latest_state["text"],
+                    "current_zone": (latest_patrol.get("current_zone") if latest_patrol else ""),
+                    "task": (latest_patrol.get("task") if latest_patrol else ""),
                 }
             )
 
@@ -779,6 +967,7 @@ async def websocket_control(websocket: WebSocket):
                 "co2": latest_env["co2"],
                 "tvoc": latest_env["tvoc"],
                 "lpg": latest_env["lpg"],
+                "co": latest_env["co"],
             })
 
     except WebSocketDisconnect:
@@ -786,6 +975,7 @@ async def websocket_control(websocket: WebSocket):
     finally:
         if websocket in clients:
             clients.remove(websocket)
+
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -796,6 +986,7 @@ def shutdown_event():
         cmdvel_sub.unsubscribe()
         cmdvel_pub.unadvertise()
         patrol_pub.unadvertise()
+        patrol_status_topic.unsubscribe()
         ros.terminate()
         print("[ROS] ROSBridge 연결 종료")
     except Exception:
